@@ -13,9 +13,23 @@ from docx import Document
 from docx.oxml.ns import qn
 
 from rookru.compose import ComposerError, StubComposer, detect_focus, message_text, parse_response
-from rookru.config import ConfigError, FocusRule, SearchSettings, load_settings, slugify
+from rookru.config import (
+    ConfigError,
+    FocusRule,
+    LetterSettings,
+    SearchSettings,
+    load_settings,
+    slugify,
+)
 from rookru.models import CVAdaptation, Job, LetterContent, SectionEdit, TemplateData
-from rookru.pipeline import compact_name, describe_address, describe_fit
+from rookru import pipeline
+from rookru.pipeline import (
+    build_application,
+    compact_name,
+    describe_address,
+    describe_fill,
+    describe_fit,
+)
 from rookru.render import cv as cv_render
 from rookru.render import docx_tools as dt
 from rookru.render import letter as letter_render
@@ -317,6 +331,40 @@ def test_ranking_ohne_suchbegriffe_bleibt_beim_schwerpunkt() -> None:
     ohne = Job(id="2", title="Bürokraft", company="B")
     ranked = rank_jobs([ohne, treffer], _rules())
     assert [job.id for job, _, _ in ranked] == ["1", "2"]
+
+
+def test_wortspanne_leitet_untergrenze_ab() -> None:
+    assert LetterSettings(max_words=300).target_words() == (255, 300)
+    assert LetterSettings(max_words=330, min_words=280).target_words() == (280, 330)
+
+
+def test_untergrenze_ueber_obergrenze_wird_gedeckelt() -> None:
+    assert LetterSettings(max_words=200, min_words=400).target_words() == (200, 200)
+
+
+def test_gestauchter_brief_bekommt_keinen_zu_kurz_rat(
+    letter_template: Path, cv_template: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Wurde gestaucht, war der Brief zu lang — 'min_woerter anheben' wäre verkehrt."""
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    job = Job(id="1", title="Werkstudent", company="ACME")
+
+    monkeypatch.setattr(
+        pipeline.convert, "fit_to_one_page", lambda *a, **k: (tmp_path / "x.pdf", 1, (1.0, 0.70))
+    )
+    monkeypatch.setattr(pipeline.convert, "fill_ratio", lambda *a, **k: 0.60)
+    monkeypatch.setattr(pipeline.convert, "page_count", lambda *a, **k: 1)
+    monkeypatch.setattr(pipeline.bundle, "merge_pdfs", lambda *a, **k: None)
+
+    app = build_application(settings, job, StubComposer(), output_root=tmp_path / "out")
+    assert not any("min_woerter" in w for w in app.warnings)
+    assert any("gestaucht" in w for w in app.warnings)
+
+
+def test_halb_leere_seite_warnt() -> None:
+    assert describe_fill(0.99, 300, 330) == []
+    warnung = describe_fill(0.62, 190, 330)[0]
+    assert "62%" in warnung and "min_woerter" in warnung
 
 
 def test_adresse_unvollstaendig_warnt() -> None:
