@@ -37,6 +37,23 @@ def describe_fit(label: str, step: tuple[float, float]) -> list[str]:
     ]
 
 
+def describe_address(job: Job) -> list[str]:
+    """Meldet einen unvollständigen Empfängerblock.
+
+    Adzuna liefert weder Straße noch Abteilung, und bei Personalberatungen
+    steht dort ohnehin die Beratung statt des Unternehmens. Beides fällt im
+    fertigen Brief kaum auf — deshalb hier ausdrücklich.
+    """
+    fehlt = [name for name, wert in (("Straße", job.street), ("PLZ/Ort", job.postal_city))
+             if not wert.strip()]
+    if not fehlt:
+        return []
+    return [
+        f"Empfängeradresse unvollständig ({', '.join(fehlt)} fehlt) — für den Postweg "
+        "selbst ergänzen oder die Stelle über --stellen mit voller Adresse erfassen."
+    ]
+
+
 def read_template(cv_template: Path) -> TemplateData:
     """Liest Faktenblatt und Abschnittskennungen aus der Lebenslauf-Vorlage."""
     return TemplateData(
@@ -83,6 +100,7 @@ def build_application(
     offen = letter.check_placeholders(letter_docx)
     if offen:
         warnings.append(f"Nicht ersetzte Platzhalter im Brief: {', '.join(sorted(offen))}")
+    warnings.extend(describe_address(job))
     letter_pdf, letter_pages, letter_step = convert.fit_to_one_page(letter_docx, directory)
     if letter_pages > 1:
         warnings.append(

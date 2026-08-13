@@ -87,13 +87,13 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
-def _print_jobs(pairs: list[tuple[Job, int]], settings: Settings) -> None:
-    for i, (job, score) in enumerate(pairs, 1):
+def _print_jobs(pairs: list[tuple[Job, int, int]], settings: Settings) -> None:
+    for i, (job, score, hits) in enumerate(pairs, 1):
         focus = detect_focus(job, settings.focus_rules)
         marker = f"[{focus.key}]" if focus else "[—]"
         print(f"{i:2d}. {job.title}")
         print(f"    {job.company} · {job.location or 'Ort unbekannt'} · "
-              f"{job.created or 'ohne Datum'} · Treffer {score} {marker}")
+              f"{job.created or 'ohne Datum'} · Titel {hits} · Schwerpunkt {score} {marker}")
         if job.url:
             print(f"    {job.url}")
 
@@ -111,7 +111,9 @@ def cmd_suchen(args: argparse.Namespace) -> int:
     print(f"Suche: '{begriffe}' in {settings.search.country.upper()}"
           f"{' / ' + settings.search.where if settings.search.where else ''}\n")
     jobs = search_jobs(settings.search)
-    pairs = rank_jobs(jobs, settings.focus_rules, settings.search.min_score)
+    pairs = rank_jobs(
+        jobs, settings.focus_rules, settings.search.min_score, settings.search.queries
+    )
     if not pairs:
         print("Keine Treffer. Suchbegriff weiter fassen oder 'ausschliessen' in profil.yaml prüfen.")
         return 1
@@ -129,8 +131,10 @@ def _collect_jobs(args: argparse.Namespace, settings: Settings) -> list[Job]:
     if args.ort:
         settings.search.where = args.ort
     jobs = search_jobs(settings.search)
-    pairs = rank_jobs(jobs, settings.focus_rules, settings.search.min_score)
-    return [job for job, _ in pairs][: args.anzahl]
+    pairs = rank_jobs(
+        jobs, settings.focus_rules, settings.search.min_score, settings.search.queries
+    )
+    return [job for job, _, _ in pairs][: args.anzahl]
 
 
 def cmd_bewerben(args: argparse.Namespace) -> int:

@@ -10,15 +10,17 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 
 from rookru.compose import ComposerError, StubComposer, detect_focus, message_text, parse_response
-from rookru.config import ConfigError, FocusRule, load_settings, slugify
+from rookru.config import ConfigError, FocusRule, SearchSettings, load_settings, slugify
 from rookru.models import CVAdaptation, Job, LetterContent, SectionEdit, TemplateData
-from rookru.pipeline import compact_name, describe_fit
+from rookru.pipeline import compact_name, describe_address, describe_fit
 from rookru.render import cv as cv_render
 from rookru.render import docx_tools as dt
 from rookru.render import letter as letter_render
 from rookru.render.bundle import BundleError, merge_pdfs
+from rookru.sources.adzuna import build_url, rank_jobs
 from rookru.sources.local import load_jobs_file
 
 # ---------------------------------------------------------------- Hilfsvorlagen
@@ -285,6 +287,48 @@ def test_fit_meldung() -> None:
     assert "Schrift" in auch_schrift and "90%" in auch_schrift
 
 
+def test_mehrwortsuche_verlangt_alle_woerter() -> None:
+    url = build_url(SearchSettings(), "Werkstudent Maschinenbau", 1, "id", "key")
+    assert "what_and=Werkstudent+Maschinenbau" in url
+    assert "what=" not in url
+
+
+def test_einwortsuche_bleibt_bei_what() -> None:
+    url = build_url(SearchSettings(), "Maschinenbau", 1, "id", "key")
+    assert "what=Maschinenbau" in url
+
+
+def test_suchbegriff_im_titel_schlaegt_schwerpunkt() -> None:
+    """Die gesuchte Werkstudentenstelle gehört vor eine Vollzeitstelle mit mehr Fachbegriffen."""
+    werkstudent = Job(id="1", title="Werkstudent Maschinenbau (m/w/d)", company="A")
+    vollzeit = Job(
+        id="2",
+        title="Leitung Konstruktion",
+        company="B",
+        description="cad creo konstruktion fertigung entwicklung",
+    )
+    ranked = rank_jobs([vollzeit, werkstudent], _rules(), queries=["Werkstudent Maschinenbau"])
+    assert [job.id for job, _, _ in ranked] == ["1", "2"]
+    assert ranked[0][2] == 2  # beide Suchwörter im Titel
+
+
+def test_ranking_ohne_suchbegriffe_bleibt_beim_schwerpunkt() -> None:
+    treffer = Job(id="1", title="Konstrukteur", company="A", description="cad creo 3d-druck")
+    ohne = Job(id="2", title="Bürokraft", company="B")
+    ranked = rank_jobs([ohne, treffer], _rules())
+    assert [job.id for job, _, _ in ranked] == ["1", "2"]
+
+
+def test_adresse_unvollstaendig_warnt() -> None:
+    warnungen = describe_address(Job(id="1", title="T", company="Personalberatung"))
+    assert warnungen and "Straße" in warnungen[0] and "PLZ/Ort" in warnungen[0]
+
+
+def test_vollstaendige_adresse_warnt_nicht() -> None:
+    job = Job(id="1", title="T", company="A", street="Beethovengasse 43", postal_city="2340 Mödling")
+    assert describe_address(job) == []
+
+
 def test_stellen_datei_braucht_pflichtfelder(tmp_path: Path) -> None:
     path = tmp_path / "stellen.yaml"
     path.write_text("- firma: ACME\n", encoding="utf-8")
@@ -354,6 +398,42 @@ def test_ausbildungseintrag_wird_nie_entfernt(cv_template: Path, tmp_path: Path)
     output, warnings = cv_render.render_cv(cv_template, adaptation, tmp_path / "out.docx")
     assert any("abgelehnt" in w for w in warnings)
     assert len(cv_render.education_anchors(output)) == 1
+
+
+def test_tabellenraster_folgt_den_zellbreiten(cv_template: Path, tmp_path: Path) -> None:
+    """Ein Raster, das nicht zu den Zellen passt, quetscht den Text bei der PDF-Ausgabe."""
+    document = Document(str(cv_template))
+    grid = document.tables[0]._tbl.find(qn("w:tblGrid"))
+    for column in grid.findall(qn("w:gridCol")):
+        column.set(qn("w:w"), "100")
+    document.save(str(tmp_path / "schief.docx"))
+
+    output, _ = cv_render.render_cv(tmp_path / "schief.docx", CVAdaptation(), tmp_path / "out.docx")
+    table = Document(str(output)).tables[0]
+    breiten = [c.get(qn("w:w")) for c in table._tbl.find(qn("w:tblGrid")).findall(qn("w:gridCol"))]
+    zellen = [c._tc.xpath("./w:tcPr/w:tcW/@w:w")[0] for c in table.rows[0].cells]
+    assert breiten == zellen
+
+
+def test_raster_ohne_zellbreiten_bleibt_unberuehrt(cv_template: Path) -> None:
+    document = Document(str(cv_template))
+    table = document.tables[0]
+    for cell in table.rows[0].cells:
+        for tcw in cell._tc.xpath("./w:tcPr/w:tcW"):
+            tcw.getparent().remove(tcw)
+    assert dt.sync_table_grid(table) is False
+
+
+def test_kennung_aus_education_anchors_trifft(cv_template: Path, tmp_path: Path) -> None:
+    """Die KI bekommt 'Kennung | Titelzeile' — genau damit muss sie treffen."""
+    anchor = cv_render.education_anchors(cv_template)[0]
+    adaptation = CVAdaptation(
+        education_edits=[SectionEdit(anchor=anchor, bullets=["Bachelorarbeit: Schutzeinhausung"])]
+    )
+    output, warnings = cv_render.render_cv(cv_template, adaptation, tmp_path / "out.docx")
+    assert warnings == []
+    text = "\n".join(p.text for p in Document(str(output)).tables[0].rows[0].cells[1].paragraphs)
+    assert "Schutzeinhausung" in text
 
 
 def test_ausbildungskennungen_mit_titelzeile(cv_template: Path) -> None:
