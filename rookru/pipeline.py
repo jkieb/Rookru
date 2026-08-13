@@ -39,11 +39,13 @@ def describe_fit(label: str, step: tuple[float, float]) -> list[str]:
 
 def read_template(cv_template: Path) -> TemplateData:
     """Liest Faktenblatt und Abschnittskennungen aus der Lebenslauf-Vorlage."""
+    facts, projects, education, skills, issues = cv.read_structure(cv_template)
     return TemplateData(
-        facts=cv.template_facts(cv_template),
-        projects=cv.project_anchors(cv_template),
-        education=cv.education_anchors(cv_template),
-        skills=cv.skill_lines(cv_template),
+        facts=facts,
+        projects=projects,
+        education=education,
+        skills=skills,
+        issues=issues,
     )
 
 
@@ -65,7 +67,7 @@ def build_application(
     """Erzeugt alle Dokumente für eine Stelle."""
     template_data = template_data or read_template(settings.templates.cv)
     style_example = load_style_example(settings) if style_example is None else style_example
-    warnings: list[str] = []
+    warnings: list[str] = list(template_data.issues)
 
     focus, content, adaptation = composer.compose(settings, job, template_data, style_example)
 

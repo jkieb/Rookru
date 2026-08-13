@@ -32,17 +32,33 @@ SKILLS = "BESONDERE KENNTNISSE UND FÄHIGKEITEN"
 EDITABLE_SECTIONS = (EDUCATION, PROJECTS, SKILLS)
 
 
+def _entry(table: Table) -> tuple[str, object] | None:
+    """Kennung und Inhaltszelle einer Eintragstabelle.
+
+    Gibt None zurück, wenn die Tabelle nicht dem erwarteten Aufbau entspricht
+    (mindestens eine Zeile mit zwei Spalten). Fremde Tabellen — etwa ein
+    Layoutrahmen im Kopf des Dokuments — werden so übersprungen statt den
+    ganzen Lauf abzubrechen.
+    """
+    if not table.rows or not table.columns:
+        return None
+    cells = table.rows[0].cells
+    if len(cells) < 2:
+        return None
+    return cells[0].text.strip(), cells[1]
+
+
 def _match_table(tables: list[Table], anchor: str) -> Table | None:
     needle = anchor.strip().lower()
     if not needle:
         return None
     for table in tables:
-        if dt.table_anchor(table).lower() == needle:
+        entry = _entry(table)
+        if entry and entry[0].lower() == needle:
             return table
     for table in tables:
-        row = table.rows[0]
-        haystack = f"{row.cells[0].text} {row.cells[1].text}".lower()
-        if needle in haystack:
+        entry = _entry(table)
+        if entry and needle in f"{entry[0]} {entry[1].text}".lower():
             return table
     return None
 
@@ -78,8 +94,9 @@ def apply_education(document: DocumentType, adaptation: CVAdaptation) -> list[st
                 "Ausbildungseinträge bleiben vollständig."
             )
             continue
-        if edit.bullets:
-            dt.set_bullets(table.rows[0].cells[1], edit.bullets)
+        entry = _entry(table)
+        if edit.bullets and entry:
+            dt.set_bullets(entry[1], edit.bullets)
     return warnings
 
 
@@ -99,8 +116,9 @@ def apply_projects(document: DocumentType, adaptation: CVAdaptation) -> list[str
             dt.delete_table(table)
             tables = [t for t in tables if t is not table]
             continue
-        if edit.bullets:
-            dt.set_bullets(table.rows[0].cells[1], edit.bullets)
+        entry = _entry(table)
+        if edit.bullets and entry:
+            dt.set_bullets(entry[1], edit.bullets)
 
     if adaptation.project_order:
         ordered: list[Table] = []
@@ -154,22 +172,29 @@ def render_cv(template: Path, adaptation: CVAdaptation, output: Path) -> tuple[P
     return output, warnings
 
 
-def template_facts(template: Path) -> str:
-    """Liest die Vorlage als Faktenblatt für die KI aus.
-
-    Damit gibt es nur eine Quelle der Wahrheit: den Lebenslauf selbst.
-    """
-    document = Document(str(template))
+def read_facts(document: DocumentType) -> tuple[str, list[str]]:
+    """Faktenblatt für die KI plus Hinweise auf nicht lesbare Tabellen."""
     lines: list[str] = []
+    issues: list[str] = []
+    tabelle_nr = 0
+
     for block in dt.iter_block_items(document):
         if isinstance(block, Table):
-            row = block.rows[0]
-            left = row.cells[0].text.strip()
-            cell = row.cells[1]
+            tabelle_nr += 1
+            entry = _entry(block)
+            if entry is None:
+                text = " ".join(block._tbl.itertext()).split()
+                vorschau = " ".join(text)[:60] or "leer"
+                spalten = len(block.columns) if block.columns else 0
+                issues.append(
+                    f"Tabelle {tabelle_nr} hat {spalten} Spalte(n) statt zwei "
+                    f"und wurde übersprungen (Inhalt: „{vorschau}“)."
+                )
+                continue
+            left, cell = entry
             paragraphs = [p.text.strip() for p in cell.paragraphs if p.text.strip()]
             if paragraphs:
-                head = paragraphs[0]
-                lines.append(f"- [{left}] {head}")
+                lines.append(f"- [{left}] {paragraphs[0]}")
                 lines.extend(f"    {p}" for p in paragraphs[1:])
         else:
             text = block.text.strip()
@@ -179,13 +204,23 @@ def template_facts(template: Path) -> str:
                 lines.append(f"\n## {text.upper()}")
             else:
                 lines.append(text)
-    return "\n".join(lines).strip()
+
+    return "\n".join(lines).strip(), issues
+
+
+def template_facts(template: Path) -> str:
+    """Liest die Vorlage als Faktenblatt für die KI aus.
+
+    Damit gibt es nur eine Quelle der Wahrheit: den Lebenslauf selbst.
+    """
+    return read_facts(Document(str(template)))[0]
 
 
 def project_anchors(template: Path) -> list[str]:
     """Kennungen der Projekt-Zeilen (linke Tabellenspalte) in Vorlagenreihenfolge."""
     document = Document(str(template))
-    return [dt.table_anchor(t) for t in _section_tables(document, PROJECTS)]
+    entries = (_entry(t) for t in _section_tables(document, PROJECTS))
+    return [e[0] for e in entries if e]
 
 
 def education_anchors(template: Path) -> list[str]:
@@ -193,10 +228,44 @@ def education_anchors(template: Path) -> list[str]:
     document = Document(str(template))
     anchors = []
     for table in _section_tables(document, EDUCATION):
-        row = table.rows[0]
-        head = next((p.text.strip() for p in row.cells[1].paragraphs if p.text.strip()), "")
-        anchors.append(f"{row.cells[0].text.strip()} | {head}")
+        entry = _entry(table)
+        if entry is None:
+            continue
+        left, cell = entry
+        head = next((p.text.strip() for p in cell.paragraphs if p.text.strip()), "")
+        anchors.append(f"{left} | {head}")
     return anchors
+
+
+def read_structure(template: Path) -> tuple[str, list[str], list[str], list[str], list[str]]:
+    """Liest die Vorlage einmal komplett.
+
+    Zurück kommen Faktenblatt, Projektkennungen, Ausbildungskennungen,
+    Kenntnis-Zeilen und Hinweise auf alles, was nicht gelesen werden konnte.
+    """
+    document = Document(str(template))
+    facts, issues = read_facts(document)
+
+    projects = [e[0] for e in (_entry(t) for t in _section_tables(document, PROJECTS)) if e]
+    if not projects:
+        issues.append(f"Kein Eintrag unter {PROJECTS} gefunden — Abschnitt bleibt unverändert.")
+
+    education = []
+    for table in _section_tables(document, EDUCATION):
+        entry = _entry(table)
+        if entry is None:
+            continue
+        head = next((p.text.strip() for p in entry[1].paragraphs if p.text.strip()), "")
+        education.append(f"{entry[0]} | {head}")
+    if not education:
+        issues.append(f"Kein Eintrag unter {EDUCATION} gefunden — Abschnitt bleibt unverändert.")
+
+    blocks = dt.section_blocks(document, SKILLS, [])
+    skills = [b.text.strip() for b in blocks if hasattr(b, "runs") and b.text.strip()]
+    if not skills:
+        issues.append(f"Keine Zeile unter {SKILLS} gefunden — Abschnitt bleibt unverändert.")
+
+    return facts, projects, education, skills, issues
 
 
 def skill_lines(template: Path) -> list[str]:

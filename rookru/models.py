@@ -53,6 +53,8 @@ class TemplateData:
     projects: list[str] = field(default_factory=list)
     education: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
+    """Auffälligkeiten beim Lesen der Vorlage — blockieren den Lauf nicht."""
 
 
 @dataclass

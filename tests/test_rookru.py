@@ -14,7 +14,7 @@ from docx import Document
 from rookru.compose import ComposerError, StubComposer, detect_focus, message_text, parse_response
 from rookru.config import ConfigError, FocusRule, load_settings, slugify
 from rookru.models import CVAdaptation, Job, LetterContent, SectionEdit, TemplateData
-from rookru.pipeline import compact_name, describe_fit
+from rookru.pipeline import compact_name, describe_fit, read_template
 from rookru.render import cv as cv_render
 from rookru.render import docx_tools as dt
 from rookru.render import letter as letter_render
@@ -446,3 +446,54 @@ def test_antworttext_aus_chunks() -> None:
     assert message_text("fertig") == "fertig"
     assert message_text([{"text": "a"}, {"text": "b"}]) == "ab"
     assert message_text(None) == ""
+
+
+# --------------------------------------------- Vorlagen mit fremdem Aufbau
+
+
+def make_odd_cv(path: Path) -> Path:
+    """Vorlage mit einer einspaltigen Layouttabelle, wie Word sie oft enthält."""
+    document = Document()
+    kopf = document.add_table(rows=1, cols=1)
+    kopf.rows[0].cells[0].text = "Max Muster — Layoutrahmen ohne zweite Spalte"
+    document.add_paragraph("PROJEKTE")
+    table = document.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "GitHub"
+    cell = table.rows[0].cells[1]
+    cell.text = "github.com/muster"
+    cell.add_paragraph("●  Python-Projekte")
+    document.add_paragraph("")
+    document.add_paragraph("BESONDERE KENNTNISSE UND FÄHIGKEITEN")
+    document.add_paragraph("CAD-Kenntnisse: Creo")
+    document.save(str(path))
+    return path
+
+
+def test_einspaltige_tabelle_bricht_nicht_ab(tmp_path: Path) -> None:
+    """Eine Layouttabelle ohne zweite Spalte darf den Lauf nicht killen."""
+    vorlage = make_odd_cv(tmp_path / "seltsam.docx")
+    data = read_template(vorlage)
+    assert data.projects == ["GitHub"]
+    assert any("Spalte" in hinweis for hinweis in data.issues)
+    assert "github.com/muster" in data.facts
+
+
+def test_fehlende_abschnitte_werden_gemeldet(tmp_path: Path) -> None:
+    document = Document()
+    document.add_paragraph("Max Muster")
+    document.save(str(tmp_path / "leer.docx"))
+    data = read_template(tmp_path / "leer.docx")
+    assert len(data.issues) == 3  # AUSBILDUNG, PROJEKTE, KENNTNISSE fehlen
+    assert data.projects == [] and data.education == []
+
+
+def test_rendern_mit_seltsamer_vorlage(tmp_path: Path) -> None:
+    vorlage = make_odd_cv(tmp_path / "seltsam.docx")
+    adaptation = CVAdaptation(
+        project_order=["GitHub"],
+        project_edits=[SectionEdit(anchor="GitHub", bullets=["Neuer Punkt"])],
+    )
+    output, warnings = cv_render.render_cv(vorlage, adaptation, tmp_path / "out.docx")
+    assert warnings == []
+    text = "\n".join(p.text for p in Document(str(output)).tables[1].rows[0].cells[1].paragraphs)
+    assert "Neuer Punkt" in text

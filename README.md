@@ -48,11 +48,21 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-LibreOffice wird für die PDF-Erzeugung gebraucht (inklusive Writer-Modul):
+LibreOffice wird für die PDF-Erzeugung gebraucht — auf dem Rechner, auf dem du
+Rookru startest. Das Writer-Modul muss dabei sein; das reine Paket
+`libreoffice-core` reicht nicht.
 
 ```bash
-sudo apt install libreoffice-writer     # Debian/Ubuntu
-brew install --cask libreoffice         # macOS
+winget install TheDocumentFoundation.LibreOffice   # Windows
+brew install --cask libreoffice                    # macOS
+sudo apt install libreoffice-writer                # Debian/Ubuntu
+```
+
+Rookru sucht das Programm im PATH und an den üblichen Installationsorten.
+Findet es nichts, den vollen Pfad in `.env` eintragen:
+
+```
+SOFFICE_PATH=C:\Program Files\LibreOffice\program\soffice.exe
 ```
 
 Zugangsdaten in `.env` eintragen (Vorlage: `.env.example`):
@@ -111,6 +121,11 @@ Großbuchstaben, darunter je Eintrag eine zweispaltige Tabelle (links die
 Kennung, rechts Text und `●`-Stichpunkte). Die Kennungen der linken Spalte
 (z. B. `Prusa MK3S+`, `GitHub`) sind gleichzeitig die Namen, mit denen das
 Modell die Reihenfolge angibt.
+
+Tabellen mit anderem Aufbau — etwa ein einspaltiger Layoutrahmen im Kopf —
+werden übersprungen und in `rookru pruefen` als Hinweis ausgegeben. `pruefen`
+listet außerdem alle erkannten Ausbildungseinträge und Projekte auf: Steht
+dort etwas nicht, findet das Modell es auch nicht.
 
 ## Benutzung
 

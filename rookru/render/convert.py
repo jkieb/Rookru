@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -30,15 +31,44 @@ class ConversionError(RuntimeError):
     """LibreOffice fehlt oder konnte die Datei nicht konvertieren."""
 
 
+# Orte, an denen LibreOffice installiert wird, ohne im PATH zu landen —
+# unter Windows und macOS ist das der Normalfall.
+KNOWN_PATHS = (
+    r"C:\Program Files\LibreOffice\program\soffice.exe",
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/opt/homebrew/bin/soffice",
+    "/usr/local/bin/soffice",
+    "/snap/bin/libreoffice",
+)
+
+
 def find_soffice() -> str:
-    for candidate in ("soffice", "libreoffice"):
+    """Sucht das LibreOffice-Programm — PATH, Umgebungsvariable, übliche Orte."""
+    override = os.environ.get("SOFFICE_PATH", "").strip().strip('"')
+    if override:
+        if Path(override).is_file():
+            return override
+        raise ConversionError(
+            f"SOFFICE_PATH zeigt auf eine Datei, die es nicht gibt: {override}"
+        )
+
+    for candidate in ("soffice", "soffice.exe", "libreoffice"):
         found = shutil.which(candidate)
         if found:
             return found
+
+    for candidate in KNOWN_PATHS:
+        if Path(candidate).is_file():
+            return candidate
+
     raise ConversionError(
-        "LibreOffice (soffice) wurde nicht gefunden. Ohne LibreOffice gibt es keine PDFs.\n"
+        "LibreOffice wurde nicht gefunden. Ohne LibreOffice gibt es keine PDFs.\n"
+        "  Windows:       winget install TheDocumentFoundation.LibreOffice\n"
+        "  macOS:         brew install --cask libreoffice\n"
         "  Debian/Ubuntu: sudo apt install libreoffice-writer\n"
-        "  macOS:         brew install --cask libreoffice"
+        "Liegt es woanders, den vollen Pfad in .env eintragen, z. B.\n"
+        r'  SOFFICE_PATH=C:\Program Files\LibreOffice\program\soffice.exe'
     )
 
 

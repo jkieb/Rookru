@@ -58,9 +58,12 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
         print(f"  Anpassbar: {', '.join(data.projects) or '—'}")
         for eintrag in data.education:
             print(f"             {eintrag}")
-    except Exception as exc:  # defekte oder fremd strukturierte Vorlage
+        for hinweis in data.issues:
+            print(f"  ⚠ {hinweis}")
+    except Exception as exc:  # unerwarteter Aufbau der Vorlage
         ok = False
-        print(f"✗ Lebenslauf-Vorlage nicht lesbar: {exc}")
+        print(f"✗ Lebenslauf-Vorlage nicht lesbar: {type(exc).__name__}: {exc}")
+        print("  Bitte die Datei melden — der Aufbau passt nicht zu dem, was Rookru erwartet.")
 
     print("✓ Stilbeispiel gefunden" if load_style_example(settings)
           else "· Kein Stilbeispiel (optional): privat/vorlagen/stilbeispiel.txt")
