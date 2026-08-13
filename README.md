@@ -28,9 +28,16 @@ Abschicken machst du selbst.
    - `bewerbung.json` — Brieftext, Schwerpunkt, Warnungen zum Nachlesen
 
 Der Lebenslauf wird **nicht neu gebaut**, sondern deine Word-Vorlage wird
-übernommen. Geändert werden nur die Abschnitte **PROJEKTE** und **BESONDERE
-KENNTNISSE UND FÄHIGKEITEN**. Persönliche Daten, Ausbildung, Berufserfahrungen
-und Sprachkenntnisse bleiben Zeichen für Zeichen wie in der Vorlage.
+übernommen. Geändert werden nur drei Abschnitte:
+
+| Abschnitt | Was die KI darf |
+| --- | --- |
+| AUSBILDUNG | nur Stichpunkte umformulieren (z. B. die Bachelorarbeit auf die Stelle ausrichten). Reihenfolge, Zeiträume, Institutionen und Abschlüsse bleiben; kein Eintrag wird entfernt |
+| PROJEKTE | umsortieren, Stichpunkte umformulieren |
+| BESONDERE KENNTNISSE UND FÄHIGKEITEN | Zeilen nach Relevanz sortieren und umformulieren |
+
+Persönliche Daten, Berufserfahrungen und Sprachkenntnisse bleiben Zeichen für
+Zeichen wie in der Vorlage.
 
 ## Installation
 

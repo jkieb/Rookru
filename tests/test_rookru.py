@@ -13,7 +13,7 @@ from docx import Document
 
 from rookru.compose import StubComposer, detect_focus
 from rookru.config import ConfigError, FocusRule, load_settings, slugify
-from rookru.models import CVAdaptation, Job, LetterContent, SectionEdit
+from rookru.models import CVAdaptation, Job, LetterContent, SectionEdit, TemplateData
 from rookru.pipeline import compact_name, describe_fit
 from rookru.render import cv as cv_render
 from rookru.render import docx_tools as dt
@@ -47,6 +47,13 @@ def make_letter_template(path: Path) -> Path:
 def make_cv_template(path: Path) -> Path:
     document = Document()
     document.add_paragraph("Max Muster")
+    document.add_paragraph("AUSBILDUNG")
+    table = document.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "2023 – dato"
+    cell = table.rows[0].cells[1]
+    cell.text = "Bachelorstudium Maschinenbau, TU Wien"
+    cell.add_paragraph("●  Bachelorarbeit zu additiver Fertigung")
+    document.add_paragraph("")
     document.add_paragraph("PROJEKTE")
     for anchor, head, bullets in (
         ("Drucker", "FDM-3D-Druck, privat", ["●  Halterungen konstruiert", "●  PETG und TPU"]),
@@ -311,9 +318,53 @@ schwerpunkte:
     )
     settings = load_settings(profil)
     job = Job(id="1", title="Aushilfe 3D-Druck", company="ACME GmbH", description="3d-druck")
-    focus, letter, adaptation = StubComposer().compose(
-        settings, job, "fakten", ["Drucker", "GitHub"], ["CAD: Creo"]
+    template = TemplateData(
+        facts="fakten", projects=["Drucker", "GitHub"], skills=["CAD: Creo"]
     )
+    focus, letter, adaptation = StubComposer().compose(settings, job, template)
     assert focus.key == "konstruktion"
     assert letter.paragraphs and "TESTMODUS" in letter.paragraphs[0]
     assert adaptation.project_order[0] == "GitHub"  # 'hervorheben' zieht nach vorne
+
+
+# ------------------------------------------------------------------ Ausbildung
+
+
+def test_ausbildung_bullets_werden_umformuliert(cv_template: Path, tmp_path: Path) -> None:
+    adaptation = CVAdaptation(
+        education_edits=[
+            SectionEdit(
+                anchor="2023 – dato",
+                bullets=["Bachelorarbeit: Schutzeinhausung, konstruiert in Fusion 360"],
+            )
+        ]
+    )
+    output, warnings = cv_render.render_cv(cv_template, adaptation, tmp_path / "out.docx")
+    assert warnings == []
+    text = "\n".join(p.text for p in Document(str(output)).tables[0].rows[0].cells[1].paragraphs)
+    assert "Schutzeinhausung" in text
+    assert "Bachelorstudium Maschinenbau, TU Wien" in text  # Titelzeile bleibt
+
+
+def test_ausbildungseintrag_wird_nie_entfernt(cv_template: Path, tmp_path: Path) -> None:
+    """Ein gelöschter Ausbildungseintrag wäre eine Lücke im Lebenslauf."""
+    adaptation = CVAdaptation(
+        education_edits=[SectionEdit(anchor="2023 – dato", bullets=[], drop=True)]
+    )
+    output, warnings = cv_render.render_cv(cv_template, adaptation, tmp_path / "out.docx")
+    assert any("abgelehnt" in w for w in warnings)
+    assert len(cv_render.education_anchors(output)) == 1
+
+
+def test_ausbildungskennungen_mit_titelzeile(cv_template: Path) -> None:
+    anchors = cv_render.education_anchors(cv_template)
+    assert anchors == ["2023 – dato | Bachelorstudium Maschinenbau, TU Wien"]
+
+
+def test_ausbildung_ohne_anpassung_bleibt_unveraendert(
+    cv_template: Path, tmp_path: Path
+) -> None:
+    output, warnings = cv_render.render_cv(cv_template, CVAdaptation(), tmp_path / "out.docx")
+    assert warnings == []
+    text = "\n".join(p.text for p in Document(str(output)).tables[0].rows[0].cells[1].paragraphs)
+    assert "Bachelorarbeit zu additiver Fertigung" in text

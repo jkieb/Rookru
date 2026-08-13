@@ -1,7 +1,7 @@
 """Lebenslauf: Vorlage übernehmen und nur die freigegebenen Abschnitte anpassen.
 
-Angepasst werden ausschließlich PROJEKTE (Reihenfolge und Stichpunkte) und
-BESONDERE KENNTNISSE UND FÄHIGKEITEN. Persönliche Daten, Ausbildung,
+Angepasst werden AUSBILDUNG (nur Stichpunkte), PROJEKTE (Reihenfolge und
+Stichpunkte) und BESONDERE KENNTNISSE UND FÄHIGKEITEN. Persönliche Daten,
 Berufserfahrungen und Sprachkenntnisse bleiben Zeichen für Zeichen so, wie sie
 in der Vorlage stehen.
 """
@@ -25,10 +25,11 @@ HEADINGS = [
     "SPRACHKENNTNISSE",
     "BESONDERE KENNTNISSE UND FÄHIGKEITEN",
 ]
+EDUCATION = "AUSBILDUNG"
 PROJECTS = "PROJEKTE"
 SKILLS = "BESONDERE KENNTNISSE UND FÄHIGKEITEN"
 
-EDITABLE_SECTIONS = (PROJECTS, SKILLS)
+EDITABLE_SECTIONS = (EDUCATION, PROJECTS, SKILLS)
 
 
 def _match_table(tables: list[Table], anchor: str) -> Table | None:
@@ -46,11 +47,46 @@ def _match_table(tables: list[Table], anchor: str) -> Table | None:
     return None
 
 
+def _section_tables(document: DocumentType, section: str) -> list[Table]:
+    return dt.section_tables(document, section, [h for h in HEADINGS if h != section])
+
+
+def apply_education(document: DocumentType, adaptation: CVAdaptation) -> list[str]:
+    """Stichpunkte der Ausbildungseinträge umformulieren.
+
+    Reihenfolge und Bestand bleiben unangetastet: Ein Lebenslauf ohne
+    chronologische Ausbildung oder mit fehlendem Abschluss fällt auf.
+    """
+    if not adaptation.education_edits:
+        return []
+
+    warnings: list[str] = []
+    tables = _section_tables(document, EDUCATION)
+    if not tables:
+        return ["Abschnitt AUSBILDUNG in der Vorlage nicht gefunden — unverändert übernommen."]
+
+    for edit in adaptation.education_edits:
+        table = _match_table(tables, edit.anchor)
+        if table is None:
+            warnings.append(
+                f"Ausbildungseintrag '{edit.anchor}' nicht in der Vorlage gefunden — übersprungen."
+            )
+            continue
+        if edit.drop:
+            warnings.append(
+                f"Ausbildungseintrag '{edit.anchor}' sollte entfernt werden — abgelehnt, "
+                "Ausbildungseinträge bleiben vollständig."
+            )
+            continue
+        if edit.bullets:
+            dt.set_bullets(table.rows[0].cells[1], edit.bullets)
+    return warnings
+
+
 def apply_projects(document: DocumentType, adaptation: CVAdaptation) -> list[str]:
     """Projekte umsortieren und Stichpunkte ersetzen. Gibt Warnungen zurück."""
     warnings: list[str] = []
-    stops = [h for h in HEADINGS if h != PROJECTS]
-    tables = dt.section_tables(document, PROJECTS, stops)
+    tables = _section_tables(document, PROJECTS)
     if not tables:
         return ["Abschnitt PROJEKTE in der Vorlage nicht gefunden — unverändert übernommen."]
 
@@ -109,7 +145,8 @@ def apply_skills(document: DocumentType, adaptation: CVAdaptation) -> list[str]:
 def render_cv(template: Path, adaptation: CVAdaptation, output: Path) -> tuple[Path, list[str]]:
     """Erzeugt den angepassten Lebenslauf; gibt Pfad und Warnungen zurück."""
     document = Document(str(template))
-    warnings = apply_projects(document, adaptation)
+    warnings = apply_education(document, adaptation)
+    warnings += apply_projects(document, adaptation)
     warnings += apply_skills(document, adaptation)
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -148,8 +185,18 @@ def template_facts(template: Path) -> str:
 def project_anchors(template: Path) -> list[str]:
     """Kennungen der Projekt-Zeilen (linke Tabellenspalte) in Vorlagenreihenfolge."""
     document = Document(str(template))
-    stops = [h for h in HEADINGS if h != PROJECTS]
-    return [dt.table_anchor(t) for t in dt.section_tables(document, PROJECTS, stops)]
+    return [dt.table_anchor(t) for t in _section_tables(document, PROJECTS)]
+
+
+def education_anchors(template: Path) -> list[str]:
+    """Kennungen der Ausbildungseinträge, jeweils mit Titelzeile zur Orientierung."""
+    document = Document(str(template))
+    anchors = []
+    for table in _section_tables(document, EDUCATION):
+        row = table.rows[0]
+        head = next((p.text.strip() for p in row.cells[1].paragraphs if p.text.strip()), "")
+        anchors.append(f"{row.cells[0].text.strip()} | {head}")
+    return anchors
 
 
 def skill_lines(template: Path) -> list[str]:

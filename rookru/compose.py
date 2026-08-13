@@ -11,7 +11,7 @@ import json
 from datetime import date
 
 from .config import FocusRule, Settings
-from .models import CVAdaptation, Focus, Job, LetterContent, SectionEdit
+from .models import CVAdaptation, Focus, Job, LetterContent, SectionEdit, TemplateData
 
 MODEL = "claude-opus-5"
 
@@ -39,7 +39,11 @@ mich", keine Aufzählung des Lebenslaufs.
 - Fließtext ohne Zeilenumbrüche und ohne Aufzählungszeichen.
 - Die Grußformel steht bereits in der Vorlage — schreibe sie nicht mit.
 
-Lebenslauf:
+Lebenslauf — nur diese drei Felder, alles andere bleibt unangetastet:
+- 'ausbildung_bullets' formuliert Stichpunkte einzelner Ausbildungseinträge um,
+etwa um die Bachelorarbeit auf die Stelle auszurichten. Reihenfolge und Bestand \
+der Einträge bleiben unverändert; Thema, Zeitraum, Institution und Abschluss \
+dürfen sich nie ändern. Gib nur Einträge an, die du tatsächlich änderst.
 - 'projekt_reihenfolge' enthält alle vorhandenen Projektkennungen, die \
 relevanteste zuerst.
 - 'projekt_bullets' ersetzt die Stichpunkte einzelner Projekte. Gib nur \
@@ -68,6 +72,18 @@ RESPONSE_SCHEMA = {
             "items": {"type": "string"},
             "description": "Absätze des Motivationsschreibens, Fließtext",
         },
+        "ausbildung_bullets": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "eintrag": {"type": "string"},
+                    "bullets": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["eintrag", "bullets"],
+                "additionalProperties": False,
+            },
+        },
         "projekt_reihenfolge": {
             "type": "array",
             "items": {"type": "string"},
@@ -93,6 +109,7 @@ RESPONSE_SCHEMA = {
         "betreff",
         "anrede",
         "absaetze",
+        "ausbildung_bullets",
         "projekt_reihenfolge",
         "projekt_bullets",
         "kenntnis_zeilen",
@@ -145,19 +162,19 @@ def focus_briefing(rules: list[FocusRule], hint: FocusRule | None) -> str:
 def build_prompt(
     settings: Settings,
     job: Job,
-    facts: str,
-    projects: list[str],
-    skills: list[str],
+    template: TemplateData,
     style_example: str,
     hint: FocusRule | None,
 ) -> str:
     parts = [
         "# Faktenblatt des Bewerbers (bestehender Lebenslauf)",
-        facts,
+        template.facts,
+        "\n# Ausbildungseinträge (Kennung links vom | für 'eintrag' verwenden)",
+        "\n".join(f"- {e}" for e in template.education) or "—",
         "\n# Projektkennungen im Lebenslauf (genau diese Schreibweise verwenden)",
-        "\n".join(f"- {p}" for p in projects) or "—",
+        "\n".join(f"- {p}" for p in template.projects) or "—",
         "\n# Aktuelle Zeilen unter BESONDERE KENNTNISSE UND FÄHIGKEITEN",
-        "\n".join(f"- {s}" for s in skills) or "—",
+        "\n".join(f"- {line}" for line in template.skills) or "—",
         "\n# Stelle",
         job_briefing(job),
         "\n# Schwerpunkte",
@@ -201,9 +218,7 @@ class ClaudeComposer:
         self,
         settings: Settings,
         job: Job,
-        facts: str,
-        projects: list[str],
-        skills: list[str],
+        template: TemplateData,
         style_example: str = "",
     ) -> tuple[Focus, LetterContent, CVAdaptation]:
         hint = detect_focus(job, settings.focus_rules)
@@ -213,7 +228,7 @@ class ClaudeComposer:
             last=max(settings.letter.paragraphs - 1, 2),
             tone=settings.letter.tone,
         )
-        user = build_prompt(settings, job, facts, projects, skills, style_example, hint)
+        user = build_prompt(settings, job, template, style_example, hint)
         data = self._request(system, user)
         return self._to_models(settings, job, data, hint)
 
@@ -287,6 +302,14 @@ class ClaudeComposer:
             letter_date=date.today(),
         )
 
+        education = [
+            SectionEdit(
+                anchor=str(item.get("eintrag", "")).strip(),
+                bullets=[str(b).strip() for b in item.get("bullets", []) if str(b).strip()],
+            )
+            for item in data.get("ausbildung_bullets", [])
+            if str(item.get("eintrag", "")).strip()
+        ]
         edits = [
             SectionEdit(
                 anchor=str(item.get("projekt", "")).strip(),
@@ -298,6 +321,7 @@ class ClaudeComposer:
         adaptation = CVAdaptation(
             project_order=[str(p).strip() for p in data.get("projekt_reihenfolge", []) if str(p).strip()],
             project_edits=edits,
+            education_edits=education,
             skill_lines=[str(s).strip() for s in data.get("kenntnis_zeilen", []) if str(s).strip()],
             notes=focus.reason,
         )
@@ -316,9 +340,7 @@ class StubComposer:
         self,
         settings: Settings,
         job: Job,
-        facts: str,
-        projects: list[str],
-        skills: list[str],
+        template: TemplateData,
         style_example: str = "",
     ) -> tuple[Focus, LetterContent, CVAdaptation]:
         hint = detect_focus(job, settings.focus_rules)
@@ -343,7 +365,7 @@ class StubComposer:
             company_street=job.street,
             company_postal_city=job.postal_city or job.location,
         )
-        order = list(projects)
+        order = list(template.projects)
         if focus.emphasise:
             def rank(anchor: str) -> int:
                 for i, needle in enumerate(focus.emphasise):
@@ -352,7 +374,7 @@ class StubComposer:
                 return len(focus.emphasise)
 
             order.sort(key=rank)
-        return focus, letter, CVAdaptation(project_order=order, skill_lines=list(skills))
+        return focus, letter, CVAdaptation(project_order=order, skill_lines=list(template.skills))
 
 
 def build_composer(offline: bool = False):

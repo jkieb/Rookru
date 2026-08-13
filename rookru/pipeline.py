@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from .config import Settings
-from .models import Application, Job
+from .models import Application, Job, TemplateData
 from .render import bundle, convert, cv, letter
 
 LETTER_LABEL = "Motivationsschreiben"
@@ -37,13 +37,14 @@ def describe_fit(label: str, step: tuple[float, float]) -> list[str]:
     ]
 
 
-class TemplateData:
-    """Einmal aus der Lebenslauf-Vorlage gelesene Fakten."""
-
-    def __init__(self, cv_template: Path) -> None:
-        self.facts = cv.template_facts(cv_template)
-        self.projects = cv.project_anchors(cv_template)
-        self.skills = cv.skill_lines(cv_template)
+def read_template(cv_template: Path) -> TemplateData:
+    """Liest Faktenblatt und Abschnittskennungen aus der Lebenslauf-Vorlage."""
+    return TemplateData(
+        facts=cv.template_facts(cv_template),
+        projects=cv.project_anchors(cv_template),
+        education=cv.education_anchors(cv_template),
+        skills=cv.skill_lines(cv_template),
+    )
 
 
 def load_style_example(settings: Settings) -> str:
@@ -62,18 +63,11 @@ def build_application(
     output_root: Path | None = None,
 ) -> Application:
     """Erzeugt alle Dokumente für eine Stelle."""
-    template_data = template_data or TemplateData(settings.templates.cv)
+    template_data = template_data or read_template(settings.templates.cv)
     style_example = load_style_example(settings) if style_example is None else style_example
     warnings: list[str] = []
 
-    focus, content, adaptation = composer.compose(
-        settings,
-        job,
-        template_data.facts,
-        template_data.projects,
-        template_data.skills,
-        style_example,
-    )
+    focus, content, adaptation = composer.compose(settings, job, template_data, style_example)
 
     today = date.today()
     firma = compact_name(job.company)

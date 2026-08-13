@@ -10,7 +10,7 @@ from pathlib import Path
 from .compose import ComposerError, build_composer, detect_focus
 from .config import ConfigError, Settings, load_settings
 from .models import Job
-from .pipeline import TemplateData, build_application, load_style_example
+from .pipeline import build_application, load_style_example, read_template
 from .render.bundle import BundleError
 from .render.convert import ConversionError, find_soffice
 from .sources.adzuna import AdzunaError, rank_jobs, search_jobs
@@ -52,10 +52,12 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
         print(f"✓ Vorlagen und {len(settings.attachments)} Anlagen vorhanden")
 
     try:
-        data = TemplateData(settings.templates.cv)
-        print(f"✓ Lebenslauf-Vorlage gelesen: {len(data.projects)} Projekte, "
-              f"{len(data.skills)} Kenntnis-Zeilen")
-        print(f"  Projekte: {', '.join(data.projects) or '—'}")
+        data = read_template(settings.templates.cv)
+        print(f"✓ Lebenslauf-Vorlage gelesen: {len(data.education)} Ausbildungseinträge, "
+              f"{len(data.projects)} Projekte, {len(data.skills)} Kenntnis-Zeilen")
+        print(f"  Anpassbar: {', '.join(data.projects) or '—'}")
+        for eintrag in data.education:
+            print(f"             {eintrag}")
     except Exception as exc:  # defekte oder fremd strukturierte Vorlage
         ok = False
         print(f"✗ Lebenslauf-Vorlage nicht lesbar: {exc}")
@@ -149,7 +151,7 @@ def cmd_bewerben(args: argparse.Namespace) -> int:
     if args.offline:
         print("⚠ Testmodus: Brieftexte sind Platzhalter und nicht versandfertig.\n")
 
-    template_data = TemplateData(settings.templates.cv)
+    template_data = read_template(settings.templates.cv)
     style_example = load_style_example(settings)
 
     erfolge, fehler = 0, 0

@@ -42,6 +42,20 @@ class Job:
 
 
 @dataclass
+class TemplateData:
+    """Was einmalig aus der Lebenslauf-Vorlage gelesen wird.
+
+    Die Vorlage ist die einzige Quelle der Wahrheit über den Bewerber; das
+    Faktenblatt und die Kennungen unten gehen so an das Modell.
+    """
+
+    facts: str = ""
+    projects: list[str] = field(default_factory=list)
+    education: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Focus:
     """Welcher Schwerpunkt für diese Stelle vorne stehen soll."""
 
@@ -85,13 +99,18 @@ class SectionEdit:
 class CVAdaptation:
     """Anpassungen am Lebenslauf für genau eine Stelle.
 
-    Betrifft ausschließlich die freigegebenen Abschnitte PROJEKTE und
-    BESONDERE KENNTNISSE UND FÄHIGKEITEN. Alle anderen Abschnitte bleiben
-    unverändert.
+    Betrifft ausschließlich die freigegebenen Abschnitte AUSBILDUNG, PROJEKTE
+    und BESONDERE KENNTNISSE UND FÄHIGKEITEN. Berufserfahrungen, persönliche
+    Daten und Sprachkenntnisse bleiben unverändert.
+
+    Bei AUSBILDUNG werden nur die Stichpunkte umformuliert — die Einträge
+    behalten ihre chronologische Reihenfolge und keiner wird entfernt, damit
+    im Lebenslauf keine Lücke entsteht.
     """
 
     project_order: list[str] = field(default_factory=list)
     project_edits: list[SectionEdit] = field(default_factory=list)
+    education_edits: list[SectionEdit] = field(default_factory=list)
     skill_lines: list[str] = field(default_factory=list)
     notes: str = ""
 

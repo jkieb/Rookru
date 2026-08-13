@@ -15,8 +15,8 @@ vorlagen:
   # {{FIRMA_ABTEILUNG}}, {{FIRMA_STRASSE}}, {{FIRMA_PLZ_ORT}}, {{STELLE}},
   # {{ABSATZ_1}} … {{ABSATZ_4}} (weitere Absätze werden bei Bedarf ergänzt).
   motivationsschreiben: privat/vorlagen/motivationsschreiben_vorlage.docx
-  # Lebenslauf: fertiges Dokument. Angepasst werden nur die Abschnitte
-  # PROJEKTE und BESONDERE KENNTNISSE UND FÄHIGKEITEN.
+  # Lebenslauf: fertiges Dokument. Angepasst werden nur AUSBILDUNG (nur die
+  # Stichpunkte), PROJEKTE und BESONDERE KENNTNISSE UND FÄHIGKEITEN.
   lebenslauf: privat/vorlagen/lebenslauf_vorlage.docx
 
 # Anlagen in genau der Reihenfolge, in der sie ins Bündel sollen.
