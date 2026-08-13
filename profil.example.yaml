@@ -55,7 +55,9 @@ suche:
   umkreis_km: 25
   treffer: 20
   max_tage: 30
-  ausschliessen: [vertrieb, außendienst, verkauf]   # Titel/Text mit diesen Wörtern fliegen raus
+  # Titel/Text mit diesen Wörtern fliegen raus. 'job in deutschland' entfernt
+  # deutsche Anzeigen, die Adzuna mit österreichischem Ort ausliefert.
+  ausschliessen: [vertrieb, außendienst, verkauf, job in deutschland]
   min_score: 0             # Mindestzahl passender Schwerpunkt-Stichwörter
 
 ki:

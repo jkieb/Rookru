@@ -32,18 +32,29 @@ SKILLS = "BESONDERE KENNTNISSE UND FÄHIGKEITEN"
 EDITABLE_SECTIONS = (EDUCATION, PROJECTS, SKILLS)
 
 
+def _needles(anchor: str) -> list[str]:
+    """Kennungen, unter denen eine Vorlagenzeile gesucht wird.
+
+    education_anchors() reicht der KI 'Kennung | Titelzeile' — genau so kommt
+    die Kennung auch zurück. Diese Form steht in keiner Zelle, also werden
+    zusätzlich beide Teile für sich geprüft.
+    """
+    parts = [anchor] + (anchor.split("|", 1) if "|" in anchor else [])
+    return [p.strip().lower() for p in parts if p.strip()]
+
+
 def _match_table(tables: list[Table], anchor: str) -> Table | None:
-    needle = anchor.strip().lower()
-    if not needle:
-        return None
-    for table in tables:
-        if dt.table_anchor(table).lower() == needle:
-            return table
-    for table in tables:
-        row = table.rows[0]
-        haystack = f"{row.cells[0].text} {row.cells[1].text}".lower()
-        if needle in haystack:
-            return table
+    needles = _needles(anchor)
+    for needle in needles:
+        for table in tables:
+            if dt.table_anchor(table).lower() == needle:
+                return table
+    for needle in needles:
+        for table in tables:
+            row = table.rows[0]
+            haystack = f"{row.cells[0].text} {row.cells[1].text}".lower()
+            if needle in haystack:
+                return table
     return None
 
 
@@ -148,6 +159,7 @@ def render_cv(template: Path, adaptation: CVAdaptation, output: Path) -> tuple[P
     warnings = apply_education(document, adaptation)
     warnings += apply_projects(document, adaptation)
     warnings += apply_skills(document, adaptation)
+    dt.sync_table_grids(document)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     document.save(str(output))

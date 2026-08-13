@@ -81,7 +81,10 @@ RESPONSE_SCHEMA = {
         "schwerpunkt_begruendung": {"type": "string"},
         "betreff": {
             "type": "string",
-            "description": "Text nach 'Bewerbung als' — Stellenbezeichnung, ggf. mit Referenz",
+            "description": (
+                "Text nach 'Bewerbung als' — die Stellenbezeichnung. Eine Referenz nur "
+                "dann anhängen, wenn sie unter 'Stelle' ausdrücklich genannt ist."
+            ),
         },
         "anrede": {"type": "string", "description": "Anredezeile inklusive Komma"},
         "absaetze": {
@@ -177,6 +180,8 @@ def build_prompt(
         "\n# Vorgaben für den Brief",
         f"Anrede (wörtlich übernehmen): {job.salutation_or_default()}",
         "Betreff beginnt in der Vorlage mit 'Bewerbung als ' — liefere nur die Fortsetzung.",
+        "Keine Referenz- oder Kennnummer erfinden: nur übernehmen, was oben unter "
+        "'Stelle' steht. Ohne Angabe endet der Betreff mit der Stellenbezeichnung.",
     ]
     if style_example:
         parts += [

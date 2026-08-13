@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,9 +43,13 @@ def build_url(
         "app_id": app_id,
         "app_key": app_key,
         "results_per_page": max(1, min(settings.results, 50)),
-        "what": query,
         "content-type": "application/json",
     }
+    # 'what' sucht die Wortfolge zusammenhängend — "Werkstudent Maschinenbau"
+    # bleibt damit leer, obwohl es passende Stellen gibt. 'what_and' verlangt
+    # nur, dass alle Wörter irgendwo in der Ausschreibung vorkommen.
+    words = query.split()
+    params["what_and" if len(words) > 1 else "what"] = " ".join(words)
     if settings.where:
         params["where"] = settings.where
         if settings.distance_km:
@@ -58,23 +63,34 @@ def build_url(
     return f"{API_BASE}/{country}/search/{page}?" + urllib.parse.urlencode(params)
 
 
-def _fetch(url: str, timeout: int = 30) -> dict:
+# Adzuna drosselt schnelle Folgeabfragen mit 502/503; einmal warten reicht meist.
+RETRY_CODES = (502, 503, 504)
+
+
+def _fetch(url: str, timeout: int = 30, versuche: int = 3) -> dict:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", "replace")[:300]
-        hint = ""
-        if exc.code in (401, 403):
-            hint = " — App-ID/App-Key prüfen."
-        elif exc.code == 429:
-            hint = " — Kontingent der Adzuna-API erschöpft, später erneut versuchen."
-        raise AdzunaError(f"Adzuna antwortet mit HTTP {exc.code}{hint} {body}") from exc
-    except urllib.error.URLError as exc:
-        raise AdzunaError(f"Keine Verbindung zu Adzuna: {exc.reason}") from exc
-    except json.JSONDecodeError as exc:
-        raise AdzunaError(f"Adzuna hat kein gültiges JSON geliefert: {exc}") from exc
+    for versuch in range(1, versuche + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code in RETRY_CODES and versuch < versuche:
+                time.sleep(versuch)
+                continue
+            body = exc.read().decode("utf-8", "replace")[:300]
+            hint = ""
+            if exc.code in (401, 403):
+                hint = " — App-ID/App-Key prüfen."
+            elif exc.code == 429:
+                hint = " — Kontingent der Adzuna-API erschöpft, später erneut versuchen."
+            elif exc.code in RETRY_CODES:
+                hint = " — Adzuna ist gerade überlastet, gleich noch einmal versuchen."
+            raise AdzunaError(f"Adzuna antwortet mit HTTP {exc.code}{hint} {body}") from exc
+        except urllib.error.URLError as exc:
+            raise AdzunaError(f"Keine Verbindung zu Adzuna: {exc.reason}") from exc
+        except json.JSONDecodeError as exc:
+            raise AdzunaError(f"Adzuna hat kein gültiges JSON geliefert: {exc}") from exc
+    raise AdzunaError("Adzuna nicht erreichbar")  # pragma: no cover — Schleife endet oben
 
 
 def _to_job(raw: dict) -> Job:
@@ -115,13 +131,36 @@ def _excluded(job: Job, settings: SearchSettings) -> bool:
     return any(word in haystack for word in settings.exclude)
 
 
-def rank_jobs(jobs: list[Job], focus_rules, min_score: int = 0) -> list[tuple[Job, int]]:
-    """Sortiert Treffer nach Anzahl passender Schwerpunkt-Stichwörter."""
+def title_hits(job: Job, queries: list[str]) -> int:
+    """Wie viele Wörter des besten Suchbegriffs im Stellentitel stehen.
+
+    Die Schwerpunkt-Stichwörter sagen, welcher Teil des Profils passt — nicht,
+    ob die Stelle überhaupt die gesuchte ist. Ohne dieses Maß landet eine
+    Vollzeitstelle mit vielen Fachbegriffen vor der gesuchten Werkstudentenstelle.
+    """
+    title = job.title.lower()
+    best = 0
+    for query in queries:
+        words = [w for w in query.lower().split() if len(w) > 2]
+        if words:
+            best = max(best, sum(1 for w in words if w in title))
+    return best
+
+
+def rank_jobs(
+    jobs: list[Job], focus_rules, min_score: int = 0, queries: list[str] | None = None
+) -> list[tuple[Job, int, int]]:
+    """Sortiert Treffer: erst Nähe zum Suchbegriff, dann passende Schwerpunkte.
+
+    Gibt je Stelle (Stelle, Schwerpunkt-Treffer, Titel-Treffer) zurück;
+    gefiltert wird weiterhin nur über die Schwerpunkt-Treffer (min_score).
+    """
+    queries = queries or []
     ranked = []
     for job in jobs:
         haystack = job.haystack()
         score = max((rule.score(haystack) for rule in focus_rules), default=0)
         if score >= min_score:
-            ranked.append((job, score))
-    ranked.sort(key=lambda pair: pair[1], reverse=True)
+            ranked.append((job, score, title_hits(job, queries)))
+    ranked.sort(key=lambda entry: (entry[2], entry[1]), reverse=True)
     return ranked

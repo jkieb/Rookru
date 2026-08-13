@@ -192,6 +192,45 @@ def table_anchor(table: Table) -> str:
     return table.rows[0].cells[0].text.strip()
 
 
+def sync_table_grid(table: Table) -> bool:
+    """Gleicht w:tblGrid an die Spaltenbreiten der ersten Zeile an.
+
+    Word rechnet sich die Spalten aus den Zellbreiten zusammen und pflegt das
+    Raster oft gar nicht; LibreOffice nimmt beim Umbruch nach PDF aber das
+    Raster ernst. Steht dort etwas anderes als in den Zellen — etwa zwei
+    gleich breite Spalten statt schmal/breit — rutscht der Text in eine viel
+    zu enge Spalte. Angeglichen wird nur, was die Vorlage selbst vorgibt.
+    """
+    grid = table._tbl.find(qn("w:tblGrid"))
+    if grid is None:
+        return False
+    columns = grid.findall(qn("w:gridCol"))
+    cells = table.rows[0].cells if table.rows else []
+    if not columns or len(columns) != len(cells):
+        return False
+
+    widths: list[str] = []
+    for cell in cells:
+        if cell._tc.xpath("./w:tcPr/w:gridSpan"):  # verbundene Zellen: Finger weg
+            return False
+        value = cell._tc.xpath("./w:tcPr/w:tcW/@w:w")
+        unit = cell._tc.xpath("./w:tcPr/w:tcW/@w:type")
+        if not value or not unit or unit[0] != "dxa" or not value[0].isdigit():
+            return False
+        widths.append(value[0])
+
+    if [c.get(qn("w:w")) for c in columns] == widths:
+        return False
+    for column, width in zip(columns, widths):
+        column.set(qn("w:w"), width)
+    return True
+
+
+def sync_table_grids(document: DocumentType) -> int:
+    """Gleicht alle Tabellenraster an; gibt die Zahl der Korrekturen zurück."""
+    return sum(sync_table_grid(table) for table in document.tables)
+
+
 def reorder_tables(tables: list[Table], order: list[Table]) -> None:
     """Sortiert Tabellen um und lässt die Leerabsätze dazwischen unangetastet."""
     if len(tables) != len(order) or not tables:
