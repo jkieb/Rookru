@@ -1,0 +1,66 @@
+# Rookru — Konfiguration
+# Kopieren nach profil.yaml und anpassen. profil.yaml ist per .gitignore
+# ausgeschlossen und bleibt lokal.
+
+bewerber:
+  name: Vorname Nachname
+  ort: Wien            # erscheint in der Datumszeile des Briefs
+  email: mail@example.com
+  telefon: "+43 000 0000000"
+
+# Deine eigenen Word-Vorlagen. Sie bestimmen das Layout — Rookru füllt und
+# sortiert nur, es baut kein eigenes Design.
+vorlagen:
+  # Motivationsschreiben: enthält Platzhalter {{DATUM}}, {{FIRMA_NAME}},
+  # {{FIRMA_ABTEILUNG}}, {{FIRMA_STRASSE}}, {{FIRMA_PLZ_ORT}}, {{STELLE}},
+  # {{ABSATZ_1}} … {{ABSATZ_4}} (weitere Absätze werden bei Bedarf ergänzt).
+  motivationsschreiben: privat/vorlagen/motivationsschreiben_vorlage.docx
+  # Lebenslauf: fertiges Dokument. Angepasst werden nur AUSBILDUNG (nur die
+  # Stichpunkte), PROJEKTE und BESONDERE KENNTNISSE UND FÄHIGKEITEN.
+  lebenslauf: privat/vorlagen/lebenslauf_vorlage.docx
+
+# Anlagen in genau der Reihenfolge, in der sie ins Bündel sollen.
+# Motivationsschreiben und Lebenslauf kommen automatisch davor.
+unterlagen:
+  - label: Sammelzeugnis Uni
+    pfad: privat/unterlagen/sammelzeugnis.pdf
+  - label: Maturazeugnis
+    pfad: privat/unterlagen/maturazeugnis.pdf
+  - label: Praktikumszeugnis
+    pfad: privat/unterlagen/praktikumszeugnis.pdf
+
+# Welcher Teil des Profils bei welcher Art Stelle nach vorne rückt.
+# 'keywords' werden gegen Titel und Ausschreibungstext geprüft (Kleinschreibung),
+# 'hervorheben' sagt der KI, was zuerst genannt werden soll.
+schwerpunkte:
+  - key: it
+    label: IT / Software / Daten
+    keywords: [python, software, daten, data, sql, programmier, automatisierung,
+               machine learning, ki, simulation, digitalisierung, informatik]
+    hervorheben: [GitHub, CS50, Python, VBA, Siemens Healthineers]
+
+  - key: konstruktion
+    label: Konstruktion / additive Fertigung
+    keywords: [konstruktion, cad, creo, fusion, 3d-druck, 3d druck, additive,
+               fertigung, produktentwicklung, bauteil, prototyp, entwicklung]
+    hervorheben: [Prusa MK3S+, Bachelorarbeit, Printables, Autodesk Fusion 360]
+
+suche:
+  land: at                 # Adzuna-Ländercode: at, de, ch, …
+  query:                   # ein Begriff oder mehrere; Treffer werden zusammengeführt
+    - Werkstudent Maschinenbau
+    - studentische Aushilfe Maschinenbau
+    - Praktikum Maschinenbau
+  ort: Wien
+  umkreis_km: 25
+  treffer: 20
+  max_tage: 30
+  ausschliessen: [vertrieb, außendienst, verkauf]   # Titel/Text mit diesen Wörtern fliegen raus
+  min_score: 0             # Mindestzahl passender Schwerpunkt-Stichwörter
+
+brief:
+  absaetze: 5              # Anzahl Absätze im Motivationsschreiben
+  max_woerter: 300         # Obergrenze, damit der Brief einseitig bleibt
+  tonfall: sachlich, konkret, ohne Werbefloskeln
+
+ausgabe: out               # Zielordner für die erzeugten Bewerbungen

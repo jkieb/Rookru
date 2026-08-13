@@ -1,0 +1,31 @@
+# Stellen von Hand erfassen — für Ausschreibungen, die nicht über Adzuna kommen.
+# Aufruf: rookru bewerben --stellen examples/stellen.beispiel.yaml
+- firma: Knorr-Bremse GmbH
+  titel: Studentische Aushilfe – 3D-Druck & technische Dokumentation (20h)
+  abteilung: Personalabteilung
+  strasse: Beethovengasse 43–45
+  plz_ort: 2340 Mödling
+  ort: Mödling
+  referenz: ""
+  url: https://example.com/stelle/3d-druck
+  beschreibung: |
+    Für unseren Standort suchen wir eine studentische Aushilfe im Bereich
+    additive Fertigung. Aufgaben: Konstruktion von 3D-gedruckten Bauteilen für
+    Vorrichtungen, Betreuung der Drucker, Erstellung technischer Dokumentation
+    für elektropneumatische Prüfstände sowie Anleitungen zur Fehlersuche.
+    Anforderungen: laufendes Studium Maschinenbau, CAD-Kenntnisse (Creo oder
+    Fusion 360), Erfahrung mit FDM-Druck, Grundkenntnisse Elektrotechnik,
+    strukturierte und sorgfältige Arbeitsweise.
+
+- firma: Beispiel Automation GmbH
+  titel: Werkstudent Datenanalyse & Automatisierung (Maschinenbau)
+  abteilung: Engineering
+  ort: Wien
+  url: https://example.com/stelle/datenanalyse
+  beschreibung: |
+    Zur Verstärkung unseres Engineering-Teams suchen wir eine:n Werkstudent:in
+    für die Auswertung von Maschinendaten. Aufgaben: Aufbereitung und
+    Visualisierung von Messdaten mit Python, Automatisierung wiederkehrender
+    Auswertungen, Mitarbeit an internen Tools und Skripten, Dokumentation im
+    Repository. Anforderungen: Studium Maschinenbau oder verwandt, sichere
+    Python-Kenntnisse, Erfahrung mit SQL von Vorteil, Freude an Automatisierung.
