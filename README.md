@@ -1,2 +1,2 @@
 # Rookru
-your personal job applyer
+your personal job applier
