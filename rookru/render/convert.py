@@ -83,6 +83,35 @@ def page_count(pdf_path: Path) -> int:
     return len(PdfReader(str(pdf_path)).pages)
 
 
+def fill_ratio(pdf_path: Path, docx_path: Path) -> float:
+    """Anteil der Satzhöhe, den der Text auf der letzten Seite tatsächlich nutzt.
+
+    Ein Motivationsschreiben, das nach zwei Dritteln der Seite endet, wirkt
+    dünn — auffallen tut das aber erst im fertigen PDF. Gemessen wird gegen
+    die Satzhöhe der Vorlage (Seitenhöhe minus Ränder), nicht gegen die
+    Blatthöhe, sonst zählen die Ränder als ungenutzt.
+    """
+    reader = PdfReader(str(pdf_path))
+    page = reader.pages[-1]
+    section = Document(str(docx_path)).sections[0]
+    top = section.top_margin.pt
+    bottom = section.bottom_margin.pt
+    satzhoehe = float(page.mediabox.height) - top - bottom
+    if satzhoehe <= 0:
+        return 1.0
+
+    tiefste: list[float] = []
+    page.extract_text(
+        visitor_text=lambda text, cm, tm, font, size: (
+            tiefste.append(tm[5]) if text.strip() else None
+        )
+    )
+    if not tiefste:
+        return 0.0
+    genutzt = float(page.mediabox.height) - top - min(tiefste)
+    return max(0.0, min(genutzt / satzhoehe, 1.0))
+
+
 def fit_to_one_page(
     docx_path: Path,
     pdf_dir: Path | None = None,

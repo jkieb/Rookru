@@ -28,8 +28,11 @@ niemals "Grundkenntnisse in X", wenn X nicht belegt ist.
 umsortieren. Der Sachgehalt jedes Stichpunkts bleibt erhalten.
 
 Motivationsschreiben:
-- {paragraphs} Absätze, zusammen höchstens {max_words} Wörter. Der Brief muss \
-auf eine Seite passen.
+- {paragraphs} Absätze, zusammen {min_words} bis {max_words} Wörter. Der Brief \
+füllt genau eine Seite: Er soll sie ausschöpfen, aber nicht auf eine zweite \
+rutschen. Bleib nicht unter der Untergrenze — ein halb leeres Blatt wirkt \
+lustlos. Fehlt dir Stoff, geh bei den Belegen mehr ins Detail (was genau \
+gemacht, womit, mit welchem Ergebnis), statt Floskeln einzufügen.
 - Aufbau: (1) konkreter Bezug zu Stelle und Unternehmen, (2)–({last}) die \
 Belege aus dem Faktenblatt, die zur Ausschreibung passen — der wichtigste \
 zuerst, (letzter Absatz) Motivation für dieses Unternehmen.
@@ -307,9 +310,11 @@ class MistralComposer:
         style_example: str = "",
     ) -> tuple[Focus, LetterContent, CVAdaptation]:
         hint = detect_focus(job, settings.focus_rules)
+        min_words, max_words = settings.letter.target_words()
         system = SYSTEM_PROMPT.format(
             paragraphs=settings.letter.paragraphs,
-            max_words=settings.letter.max_words,
+            min_words=min_words,
+            max_words=max_words,
             last=max(settings.letter.paragraphs - 1, 2),
             tone=settings.letter.tone,
         )

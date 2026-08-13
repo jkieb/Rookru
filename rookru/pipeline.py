@@ -37,6 +37,19 @@ def describe_fit(label: str, step: tuple[float, float]) -> list[str]:
     ]
 
 
+MIN_FILL = 0.88  # darunter wirkt das Blatt halb leer
+
+
+def describe_fill(ratio: float, words: int, max_words: int) -> list[str]:
+    """Meldet ein Motivationsschreiben, das die Seite nicht ausfüllt."""
+    if ratio >= MIN_FILL:
+        return []
+    return [
+        f"Motivationsschreiben füllt nur {ratio:.0%} der Seite ({words} Wörter) — "
+        f"brief.min_woerter anheben (max_woerter steht auf {max_words})."
+    ]
+
+
 def describe_address(job: Job) -> list[str]:
     """Meldet einen unvollständigen Empfängerblock.
 
@@ -109,6 +122,16 @@ def build_application(
         )
     else:
         warnings.extend(describe_fit("Motivationsschreiben", letter_step))
+        # Nur ungestaucht ist ein niedriger Füllgrad ein Zeichen für zu wenig
+        # Text — musste gestaucht werden, war der Brief im Gegenteil zu lang.
+        if letter_step == (1.0, 1.0):
+            warnings.extend(
+                describe_fill(
+                    convert.fill_ratio(letter_pdf, letter_docx),
+                    content.word_count(),
+                    settings.letter.max_words,
+                )
+            )
 
     # Lebenslauf
     cv_docx = directory / f"{CV_LABEL}_{nachname}_{firma}.docx"

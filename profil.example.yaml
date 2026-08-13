@@ -67,7 +67,10 @@ ki:
 
 brief:
   absaetze: 5              # Anzahl Absätze im Motivationsschreiben
-  max_woerter: 300         # Obergrenze, damit der Brief einseitig bleibt
+  min_woerter: 295         # Untergrenze, damit die Seite auch voll wird
+  max_woerter: 320         # Obergrenze mit Reserve — das Modell zielt nur
+                           # grob; ab ~345 Wörtern kippt der Brief
+                           # auf zwei Seiten (an der Vorlage ausgemessen)
   tonfall: sachlich, konkret, ohne Werbefloskeln
 
 ausgabe: out               # Zielordner für die erzeugten Bewerbungen

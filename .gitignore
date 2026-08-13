@@ -14,3 +14,8 @@ __pycache__/
 # LibreOffice / Office
 .~lock.*#
 ~$*
+
+# Editor und Betriebssystem
+.DS_Store
+.vscode/
+.idea/

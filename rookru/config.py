@@ -73,9 +73,15 @@ class AISettings:
 @dataclass
 class LetterSettings:
     max_words: int = 300
+    min_words: int = 0  # 0 → aus max_words abgeleitet, siehe target_words()
     paragraphs: int = 4
     tone: str = "sachlich, konkret, ohne Werbefloskeln"
     closing_fixed: bool = True
+
+    def target_words(self) -> tuple[int, int]:
+        """Spanne, in der der Brief landen soll — eine Seite voll, aber nicht zwei."""
+        low = self.min_words or int(self.max_words * 0.85)
+        return min(low, self.max_words), self.max_words
 
 
 @dataclass
@@ -198,6 +204,7 @@ def load_settings(path: str | Path) -> Settings:
     brief = data.get("brief") or {}
     letter = LetterSettings(
         max_words=int(brief.get("max_woerter", 300)),
+        min_words=int(brief.get("min_woerter", 0) or 0),
         paragraphs=int(brief.get("absaetze", 4)),
         tone=str(brief.get("tonfall", "sachlich, konkret, ohne Werbefloskeln")),
         closing_fixed=bool(brief.get("grussformel_fix", True)),
