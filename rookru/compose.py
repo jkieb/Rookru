@@ -1,19 +1,18 @@
-"""Texterzeugung über die Claude API.
+"""Texterzeugung über die Mistral-API.
 
 Ein Aufruf je Stelle liefert alles, was sich zwischen zwei Bewerbungen ändert:
-den Text des Motivationsschreibens und die Anpassung der beiden freigegebenen
+den Text des Motivationsschreibens und die Anpassung der freigegebenen
 Lebenslauf-Abschnitte.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 
-from .config import FocusRule, Settings
+from .config import AISettings, FocusRule, Settings
 from .models import CVAdaptation, Focus, Job, LetterContent, SectionEdit, TemplateData
-
-MODEL = "claude-opus-5"
 
 SYSTEM_PROMPT = """\
 Du schreibst Bewerbungsunterlagen für einen einzelnen Bewerber im \
@@ -52,7 +51,25 @@ bleiben vergleichbar mit dem Original.
 - 'kenntnis_zeilen' ersetzt die Zeilen unter BESONDERE KENNTNISSE UND \
 FÄHIGKEITEN. Behalte Aufbau und Inhalt bei, sortiere nur nach Relevanz für die \
 Stelle.
+
+Antworte ausschließlich mit dem geforderten JSON-Objekt.
 """
+
+
+def _bullet_edit_schema(key: str) -> dict:
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                key: {"type": "string"},
+                "bullets": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": [key, "bullets"],
+            "additionalProperties": False,
+        },
+    }
+
 
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -72,35 +89,13 @@ RESPONSE_SCHEMA = {
             "items": {"type": "string"},
             "description": "Absätze des Motivationsschreibens, Fließtext",
         },
-        "ausbildung_bullets": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "eintrag": {"type": "string"},
-                    "bullets": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["eintrag", "bullets"],
-                "additionalProperties": False,
-            },
-        },
+        "ausbildung_bullets": _bullet_edit_schema("eintrag"),
         "projekt_reihenfolge": {
             "type": "array",
             "items": {"type": "string"},
             "description": "Projektkennungen, relevanteste zuerst",
         },
-        "projekt_bullets": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "projekt": {"type": "string"},
-                    "bullets": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["projekt", "bullets"],
-                "additionalProperties": False,
-            },
-        },
+        "projekt_bullets": _bullet_edit_schema("projekt"),
         "kenntnis_zeilen": {"type": "array", "items": {"type": "string"}},
     },
     "required": [
@@ -194,25 +189,110 @@ def build_prompt(
     return "\n".join(parts)
 
 
-class ClaudeComposer:
-    """Verfasst Brief und Lebenslauf-Anpassung mit Claude."""
+def _edits(items, key: str) -> list[SectionEdit]:
+    return [
+        SectionEdit(
+            anchor=str(item.get(key, "")).strip(),
+            bullets=[str(b).strip() for b in item.get("bullets", []) if str(b).strip()],
+        )
+        for item in items or []
+        if isinstance(item, dict) and str(item.get(key, "")).strip()
+    ]
 
-    name = "claude"
 
-    def __init__(self, model: str = MODEL, effort: str = "high") -> None:
+def parse_response(
+    settings: Settings, job: Job, data: dict, hint: FocusRule | None = None
+) -> tuple[Focus, LetterContent, CVAdaptation]:
+    """Wandelt die JSON-Antwort in die Datenmodelle um.
+
+    Bewusst getrennt vom API-Aufruf, damit die Auswertung ohne Netzwerk
+    geprüft werden kann.
+    """
+    key = str(data.get("schwerpunkt", "")).strip()
+    rule = next((r for r in settings.focus_rules if r.key == key), hint)
+    focus = Focus(
+        key=rule.key if rule else "allgemein",
+        label=rule.label if rule else "Allgemein",
+        emphasise=list(rule.emphasise) if rule else [],
+        reason=str(data.get("schwerpunkt_begruendung", "")).strip(),
+    )
+
+    paragraphs = [" ".join(str(p).split()) for p in data.get("absaetze", []) if str(p).strip()]
+    if not paragraphs:
+        raise ComposerError("Das Modell hat keinen Brieftext geliefert.")
+
+    letter = LetterContent(
+        subject=str(data.get("betreff", "")).strip() or job.title,
+        salutation=str(data.get("anrede", "")).strip() or job.salutation_or_default(),
+        paragraphs=paragraphs,
+        company_name=job.company,
+        company_department=job.department,
+        company_street=job.street,
+        company_postal_city=job.postal_city or job.location,
+        letter_date=date.today(),
+    )
+
+    adaptation = CVAdaptation(
+        project_order=[
+            str(p).strip() for p in data.get("projekt_reihenfolge", []) if str(p).strip()
+        ],
+        project_edits=_edits(data.get("projekt_bullets"), "projekt"),
+        education_edits=_edits(data.get("ausbildung_bullets"), "eintrag"),
+        skill_lines=[str(s).strip() for s in data.get("kenntnis_zeilen", []) if str(s).strip()],
+        notes=focus.reason,
+    )
+    return focus, letter, adaptation
+
+
+def message_text(content) -> str:
+    """Holt den Text aus der Antwort — Mistral liefert String oder Chunk-Liste."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for chunk in content:
+            text = getattr(chunk, "text", None)
+            if text is None and isinstance(chunk, dict):
+                text = chunk.get("text")
+            if text:
+                parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+class MistralComposer:
+    """Verfasst Brief und Lebenslauf-Anpassung mit der Mistral-API."""
+
+    name = "mistral"
+
+    def __init__(self, ai: AISettings | None = None) -> None:
         try:
-            import anthropic  # noqa: PLC0415 — optionale Abhängigkeit
+            from mistralai.client import Mistral  # noqa: PLC0415 — optionale Abhängigkeit
+            from mistralai.client.errors.mistralerror import MistralError
+            from mistralai.client.models import JSONSchema, ResponseFormat
         except ImportError as exc:
             raise ComposerError(
-                "Das Paket 'anthropic' fehlt. Installation: pip install anthropic"
+                "Das Paket 'mistralai' fehlt. Installation: pip install mistralai"
             ) from exc
-        self._anthropic = anthropic
-        try:
-            self._client = anthropic.Anthropic()
-        except Exception as exc:  # fehlender Schlüssel u. Ä.
-            raise ComposerError(f"Claude-Client nicht initialisierbar: {exc}") from exc
-        self.model = model
-        self.effort = effort
+
+        api_key = os.environ.get("MISTRAL_API_KEY", "").strip()
+        if not api_key:
+            raise ComposerError(
+                "MISTRAL_API_KEY ist nicht gesetzt. Trage den Schlüssel in .env ein "
+                "(Vorlage: .env.example) oder nutze --offline."
+            )
+
+        self._error = MistralError
+        self._client = Mistral(api_key=api_key)
+        self._response_format = ResponseFormat(
+            type="json_schema",
+            json_schema=JSONSchema(
+                name="bewerbung",
+                schema_definition=RESPONSE_SCHEMA,
+                strict=True,
+            ),
+        )
+        self.ai = ai or AISettings()
 
     def compose(
         self,
@@ -230,102 +310,34 @@ class ClaudeComposer:
         )
         user = build_prompt(settings, job, template, style_example, hint)
         data = self._request(system, user)
-        return self._to_models(settings, job, data, hint)
+        return parse_response(settings, job, data, hint)
 
     def _request(self, system: str, user: str) -> dict:
-        params = dict(
-            model=self.model,
-            max_tokens=16000,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            output_config={
-                "effort": self.effort,
-                "format": {"type": "json_schema", "schema": RESPONSE_SCHEMA},
-            },
-        )
-
         try:
-            # Claude Opus 5 kann eine Anfrage ablehnen; der serverseitige
-            # Fallback beantwortet sie dann im selben Aufruf mit einem anderen
-            # Modell, statt die Bewerbung ausfallen zu lassen.
-            try:
-                response = self._client.beta.messages.create(
-                    betas=["server-side-fallback-2026-07-01"],
-                    fallbacks="default",
-                    **params,
-                )
-            except self._anthropic.BadRequestError:
-                response = self._client.messages.create(**params)
-        except self._anthropic.APIStatusError as exc:
-            raise ComposerError(f"Claude API: HTTP {exc.status_code} — {exc.message}") from exc
-        except self._anthropic.APIConnectionError as exc:
-            raise ComposerError(f"Keine Verbindung zur Claude API: {exc}") from exc
+            response = self._client.chat.complete(
+                model=self.ai.model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format=self._response_format,
+                temperature=self.ai.temperature,
+                max_tokens=self.ai.max_tokens,
+            )
+        except self._error as exc:
+            raise ComposerError(f"Mistral-API: {exc}") from exc
 
-        if response.stop_reason == "refusal":
-            detail = getattr(response.stop_details, "explanation", "") or ""
-            raise ComposerError(f"Anfrage wurde abgelehnt. {detail}".strip())
+        choices = getattr(response, "choices", None)
+        if not choices:
+            raise ComposerError("Mistral hat keine Antwort geliefert.")
 
-        text = next((b.text for b in response.content if b.type == "text"), "")
-        if not text.strip():
-            raise ComposerError("Leere Antwort der Claude API.")
+        text = message_text(choices[0].message.content).strip()
+        if not text:
+            raise ComposerError("Leere Antwort der Mistral-API.")
         try:
             return json.loads(text)
         except json.JSONDecodeError as exc:
             raise ComposerError(f"Antwort war kein gültiges JSON: {exc}") from exc
-
-    def _to_models(
-        self, settings: Settings, job: Job, data: dict, hint: FocusRule | None
-    ) -> tuple[Focus, LetterContent, CVAdaptation]:
-        key = str(data.get("schwerpunkt", "")).strip()
-        rule = next((r for r in settings.focus_rules if r.key == key), hint)
-        focus = Focus(
-            key=rule.key if rule else "allgemein",
-            label=rule.label if rule else "Allgemein",
-            emphasise=list(rule.emphasise) if rule else [],
-            reason=str(data.get("schwerpunkt_begruendung", "")).strip(),
-        )
-
-        paragraphs = [
-            " ".join(str(p).split()) for p in data.get("absaetze", []) if str(p).strip()
-        ]
-        if not paragraphs:
-            raise ComposerError("Das Modell hat keinen Brieftext geliefert.")
-
-        letter = LetterContent(
-            subject=str(data.get("betreff", "")).strip() or job.title,
-            salutation=str(data.get("anrede", "")).strip() or job.salutation_or_default(),
-            paragraphs=paragraphs,
-            company_name=job.company,
-            company_department=job.department,
-            company_street=job.street,
-            company_postal_city=job.postal_city or job.location,
-            letter_date=date.today(),
-        )
-
-        education = [
-            SectionEdit(
-                anchor=str(item.get("eintrag", "")).strip(),
-                bullets=[str(b).strip() for b in item.get("bullets", []) if str(b).strip()],
-            )
-            for item in data.get("ausbildung_bullets", [])
-            if str(item.get("eintrag", "")).strip()
-        ]
-        edits = [
-            SectionEdit(
-                anchor=str(item.get("projekt", "")).strip(),
-                bullets=[str(b).strip() for b in item.get("bullets", []) if str(b).strip()],
-            )
-            for item in data.get("projekt_bullets", [])
-            if str(item.get("projekt", "")).strip()
-        ]
-        adaptation = CVAdaptation(
-            project_order=[str(p).strip() for p in data.get("projekt_reihenfolge", []) if str(p).strip()],
-            project_edits=edits,
-            education_edits=education,
-            skill_lines=[str(s).strip() for s in data.get("kenntnis_zeilen", []) if str(s).strip()],
-            notes=focus.reason,
-        )
-        return focus, letter, adaptation
 
 
 class StubComposer:
@@ -367,6 +379,7 @@ class StubComposer:
         )
         order = list(template.projects)
         if focus.emphasise:
+
             def rank(anchor: str) -> int:
                 for i, needle in enumerate(focus.emphasise):
                     if needle.lower() in anchor.lower():
@@ -374,8 +387,10 @@ class StubComposer:
                 return len(focus.emphasise)
 
             order.sort(key=rank)
-        return focus, letter, CVAdaptation(project_order=order, skill_lines=list(template.skills))
+        return focus, letter, CVAdaptation(
+            project_order=order, skill_lines=list(template.skills)
+        )
 
 
-def build_composer(offline: bool = False):
-    return StubComposer() if offline else ClaudeComposer()
+def build_composer(offline: bool = False, ai: AISettings | None = None):
+    return StubComposer() if offline else MistralComposer(ai)

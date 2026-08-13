@@ -71,11 +71,11 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
         ok = False
         print(f"✗ {exc}")
 
-    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
-        print("✓ Claude-Zugang gesetzt")
+    if os.environ.get("MISTRAL_API_KEY"):
+        print(f"✓ Mistral-Zugang gesetzt (Modell: {settings.ai.model})")
     else:
         ok = False
-        print("✗ ANTHROPIC_API_KEY fehlt (für --offline nicht nötig)")
+        print("✗ MISTRAL_API_KEY fehlt (für --offline nicht nötig)")
 
     if os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"):
         print("✓ Adzuna-Zugang gesetzt")
@@ -147,7 +147,11 @@ def cmd_bewerben(args: argparse.Namespace) -> int:
         print("Keine passenden Stellen gefunden.")
         return 1
 
-    composer = build_composer(offline=args.offline)
+    try:
+        composer = build_composer(offline=args.offline, ai=settings.ai)
+    except ComposerError as exc:
+        print(f"Fehler: {exc}", file=sys.stderr)
+        return 1
     if args.offline:
         print("⚠ Testmodus: Brieftexte sind Platzhalter und nicht versandfertig.\n")
 

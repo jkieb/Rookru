@@ -16,9 +16,11 @@ Abschicken machst du selbst.
 2. **Schwerpunkt bestimmen** — anhand der Ausschreibung: eine Software-Stelle
    rückt GitHub und CS50 nach vorne, eine Konstruktionsstelle den privaten
    3D-Drucker und die Bachelorarbeit. Regeln stehen in `profil.yaml`.
-3. **Texten** — ein Aufruf an Claude (`claude-opus-5`) schreibt den Brieftext und
-   die Lebenslauf-Anpassung. Grundlage ist ausschließlich dein bestehender
-   Lebenslauf; das Modell darf nichts hinzuerfinden.
+3. **Texten** — ein Aufruf an die Mistral-API (`mistral-large-latest`, in
+   `profil.yaml` umstellbar) schreibt den Brieftext und die
+   Lebenslauf-Anpassung. Die Antwort ist per JSON-Schema festgelegt. Grundlage
+   ist ausschließlich dein bestehender Lebenslauf; das Modell darf nichts
+   hinzuerfinden.
 4. **Dokumente bauen** —
    - `Motivationsschreiben_<Name>_<Firma>.docx` + `.pdf` (einseitig)
    - `Lebenslauf_<Name>_<Firma>.docx` + `.pdf` (einseitig)
@@ -56,9 +58,9 @@ brew install --cask libreoffice         # macOS
 Zugangsdaten in `.env` eintragen (Vorlage: `.env.example`):
 
 ```
-ADZUNA_APP_ID=…      # kostenlos: https://developer.adzuna.com/
+ADZUNA_APP_ID=…     # kostenlos: https://developer.adzuna.com/
 ADZUNA_APP_KEY=…
-ANTHROPIC_API_KEY=…  # https://console.anthropic.com/
+MISTRAL_API_KEY=…   # https://console.mistral.ai/
 ```
 
 ## Einrichten
@@ -123,7 +125,7 @@ Modell die Reihenfolge angibt.
 # Einzelne, von Hand erfasste Stellen (mit Firmenadresse für den Briefkopf)
 .venv/bin/python -m rookru bewerben --stellen examples/stellen.beispiel.yaml
 
-# Layout prüfen, ohne die Claude-API zu benutzen (Platzhaltertext)
+# Layout prüfen, ohne die Mistral-API zu benutzen (Platzhaltertext)
 .venv/bin/python -m rookru bewerben --stellen examples/stellen.beispiel.yaml --offline
 ```
 
@@ -141,7 +143,7 @@ Ergebnis liegt unter `out/<Datum>_<Firma>_<Stelle>/`.
   nicht auf eine Seite, verkleinert Rookru stufenweise erst die Abstände, dann
   die Schrift, und schreibt eine Warnung dazu. Ist auf deinem Rechner die echte
   Arial installiert, passt der Lebenslauf meist ohne jede Verkleinerung.
-- **Deine Daten gehen an die Claude-API.** Für jede Bewerbung werden dein
+- **Deine Daten gehen an die Mistral-API.** Für jede Bewerbung werden dein
   Lebenslauf-Inhalt und die Stellenausschreibung übertragen. Ohne API-Zugriff
   läuft nur `--offline`, und der erzeugt reinen Platzhaltertext.
 - **Gegenlesen bleibt Pflicht.** Das Modell soll nichts erfinden und wird
