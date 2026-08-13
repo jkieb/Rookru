@@ -58,6 +58,11 @@ suche:
   ausschliessen: [vertrieb, außendienst, verkauf]   # Titel/Text mit diesen Wörtern fliegen raus
   min_score: 0             # Mindestzahl passender Schwerpunkt-Stichwörter
 
+ki:
+  modell: mistral-large-latest   # z. B. mistral-medium-latest für weniger Kosten
+  temperatur: 0.3                # höher = mehr Variation im Formulieren
+  max_tokens: 8000
+
 brief:
   absaetze: 5              # Anzahl Absätze im Motivationsschreiben
   max_woerter: 300         # Obergrenze, damit der Brief einseitig bleibt

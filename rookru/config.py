@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -61,6 +62,15 @@ class SearchSettings:
 
 
 @dataclass
+class AISettings:
+    """Modelleinstellungen für die Texterzeugung (Mistral)."""
+
+    model: str = "mistral-large-latest"
+    temperature: float = 0.3
+    max_tokens: int = 8000
+
+
+@dataclass
 class LetterSettings:
     max_words: int = 300
     paragraphs: int = 4
@@ -76,6 +86,7 @@ class Settings:
     focus_rules: list[FocusRule]
     search: SearchSettings
     letter: LetterSettings
+    ai: AISettings
     output_dir: Path
     base_dir: Path
 
@@ -192,6 +203,13 @@ def load_settings(path: str | Path) -> Settings:
         closing_fixed=bool(brief.get("grussformel_fix", True)),
     )
 
+    ki = data.get("ki") or {}
+    ai = AISettings(
+        model=str(ki.get("modell", os.environ.get("MISTRAL_MODEL") or "mistral-large-latest")),
+        temperature=float(ki.get("temperatur", 0.3)),
+        max_tokens=int(ki.get("max_tokens", 8000)),
+    )
+
     output_dir = _resolve(base, str(data.get("ausgabe", "out")))
 
     return Settings(
@@ -201,6 +219,7 @@ def load_settings(path: str | Path) -> Settings:
         focus_rules=focus_rules,
         search=search,
         letter=letter,
+        ai=ai,
         output_dir=output_dir,
         base_dir=base,
     )

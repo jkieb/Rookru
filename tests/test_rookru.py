@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-from rookru.compose import StubComposer, detect_focus
+from rookru.compose import ComposerError, StubComposer, detect_focus, message_text, parse_response
 from rookru.config import ConfigError, FocusRule, load_settings, slugify
 from rookru.models import CVAdaptation, Job, LetterContent, SectionEdit, TemplateData
 from rookru.pipeline import compact_name, describe_fit
@@ -368,3 +368,81 @@ def test_ausbildung_ohne_anpassung_bleibt_unveraendert(
     assert warnings == []
     text = "\n".join(p.text for p in Document(str(output)).tables[0].rows[0].cells[1].paragraphs)
     assert "Bachelorarbeit zu additiver Fertigung" in text
+
+
+# ---------------------------------------------------------- Antwort auswerten
+
+
+def _settings_for_parse(tmp_path: Path, cv_template: Path, letter_template: Path):
+    profil = tmp_path / "profil.yaml"
+    profil.write_text(
+        f"""
+bewerber:
+  name: Max Muster
+vorlagen:
+  motivationsschreiben: {letter_template}
+  lebenslauf: {cv_template}
+schwerpunkte:
+  - key: it
+    label: IT
+    keywords: [python]
+    hervorheben: [GitHub]
+""",
+        encoding="utf-8",
+    )
+    return load_settings(profil)
+
+
+def test_antwort_wird_vollstaendig_uebernommen(
+    tmp_path: Path, cv_template: Path, letter_template: Path
+) -> None:
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    job = Job(id="1", title="Werkstudent", company="ACME GmbH", location="1010 Wien")
+    data = {
+        "schwerpunkt": "it",
+        "schwerpunkt_begruendung": "Python im Anforderungsprofil",
+        "betreff": "Werkstudent Datenanalyse",
+        "anrede": "Sehr geehrte Frau Muster,",
+        "absaetze": ["Erster\nAbsatz", "  ", "Zweiter Absatz"],
+        "ausbildung_bullets": [{"eintrag": "2023 – dato", "bullets": ["Bachelorarbeit zu CAD"]}],
+        "projekt_reihenfolge": ["GitHub", "Drucker"],
+        "projekt_bullets": [{"projekt": "GitHub", "bullets": ["Python-Projekte", ""]}],
+        "kenntnis_zeilen": ["CAD: Creo", ""],
+    }
+    focus, letter, adaptation = parse_response(settings, job, data)
+
+    assert focus.key == "it" and focus.emphasise == ["GitHub"]
+    assert letter.paragraphs == ["Erster Absatz", "Zweiter Absatz"]  # leer raus, Umbruch geglättet
+    assert letter.subject == "Werkstudent Datenanalyse"
+    assert letter.company_postal_city == "1010 Wien"
+    assert adaptation.education_edits[0].anchor == "2023 – dato"
+    assert adaptation.project_edits[0].bullets == ["Python-Projekte"]
+    assert adaptation.skill_lines == ["CAD: Creo"]
+
+
+def test_antwort_ohne_absaetze_ist_ein_fehler(
+    tmp_path: Path, cv_template: Path, letter_template: Path
+) -> None:
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    job = Job(id="1", title="Werkstudent", company="ACME GmbH")
+    with pytest.raises(ComposerError, match="keinen Brieftext"):
+        parse_response(settings, job, {"absaetze": []})
+
+
+def test_unbekannter_schwerpunkt_faellt_auf_heuristik_zurueck(
+    tmp_path: Path, cv_template: Path, letter_template: Path
+) -> None:
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    job = Job(id="1", title="Werkstudent", company="ACME", description="python")
+    hint = detect_focus(job, settings.focus_rules)
+    focus, _, _ = parse_response(
+        settings, job, {"schwerpunkt": "gibt-es-nicht", "absaetze": ["Text"]}, hint
+    )
+    assert focus.key == "it"
+
+
+def test_antworttext_aus_chunks() -> None:
+    """Mistral liefert content je nach Modell als String oder als Chunk-Liste."""
+    assert message_text("fertig") == "fertig"
+    assert message_text([{"text": "a"}, {"text": "b"}]) == "ab"
+    assert message_text(None) == ""
