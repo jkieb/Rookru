@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from typing import Callable, Optional
 
 from ..config import SearchSettings
 from ..models import Job
 
+# Rückmeldung je erledigtem Suchbegriff — speist den Fortschrittsbalken.
+Melder = Optional[Callable[[str], None]]
+
 # HTTP-Kopfzeilen muessen ASCII sein (RFC 7230). Ein Umlaut hier laesst
 # Jooble die Anfrage mit HTTP 400 abweisen — daher bewusst ohne.
 USER_AGENT = "rookru/0.1 (persoenliche Bewerbungsautomatisierung)"
+
+# Steht, wenn die Börse keinen Arbeitgeber nennt — bei EURES ist das der
+# Regelfall, weil die österreichischen Anzeigen anonymisiert eingespeist werden.
+UNBEKANNT = "Unbekanntes Unternehmen"
 
 TAGS = re.compile(r"<[^>]+>")
 ENTITIES = {"&amp;": "&", "&nbsp;": " ", "&quot;": '"', "&#39;": "'", "&lt;": "<", "&gt;": ">"}
@@ -59,4 +67,9 @@ def dedup_key(job: Job) -> str:
     """
     from ..config import slugify
 
-    return f"{slugify(job.company)}|{slugify(job.title)}"
+    firma = slugify(job.company)
+    if firma == slugify(UNBEKANNT):
+        # Ohne Firmennamen sähen zwei verschiedene Stellen mit gleichem Titel
+        # wie dieselbe aus; die ID hält sie auseinander.
+        return f"{firma}|{slugify(job.title)}|{job.id}"
+    return f"{firma}|{slugify(job.title)}"

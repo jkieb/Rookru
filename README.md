@@ -67,6 +67,7 @@ ADZUNA_APP_KEY=…
 CAREERJET_API_KEY=…   # kostenlos: https://www.careerjet.com/partners/api/
 JOOBLE_API_KEY=…      # kostenlos auf Anfrage: https://jooble.org/api/about
 MISTRAL_API_KEY=…     # https://console.mistral.ai/
+                      # 'eures' braucht keinen Schlüssel
 ```
 
 Gebraucht wird nur, was in `suche.quellen` steht — wer bloß Adzuna nutzt,
@@ -127,8 +128,10 @@ Daraus werden `Werkstudent Maschinenbau`, `Werkstudent Konstruktion`, …,
 gehört das, was du kannst, nicht das, was du studierst.
 
 **Jede Kombination ist eine Anfrage je Quelle.** 24 Begriffe × 3 Börsen sind 72
-Anfragen und rund anderthalb Minuten. Wird es zu langsam, kürze die
-Themenliste — sie ist der Hebel.
+Anfragen und rund anderthalb Minuten; ein Fortschrittsbalken zeigt, wo die Suche
+gerade steht. Wird es zu langsam, kürze die Themenliste — sie ist der Hebel.
+
+Der Balken läuft auf stderr, `rookru suchen > treffer.txt` bleibt also sauber.
 
 ### Stellenquellen
 
@@ -148,11 +151,23 @@ suche:
 | `adzuna` | breit, viele Länder | mehrwortige Begriffe werden als „alle Wörter" gesucht; kennt einen Altersfilter |
 | `careerjet` | bündelt zusätzliche Börsen | Altersfilter rechnet Rookru selbst; kürzere Ausschreibungstexte |
 | `jooble` | Aggregator, deckt u. a. karriere.at mit ab | Umkreis nur in festen Stufen (0/4/8/16/26/40/80 km) — Rookru rundet; Altersfilter rechnet Rookru selbst |
+| `eures` | EU-Jobportal, wenige, aber gut passende Treffer | **kein Schlüssel nötig**; liefert als einzige Quelle den **vollen Ausschreibungstext**; kein Umkreis, sondern Regionen (Wien, Graz, Linz … sind hinterlegt) |
+
+**Warum EURES trotz weniger Treffer?** Die anderen Börsen liefern nur Anrisse
+von 270 bis 500 Zeichen, EURES die vollständige Ausschreibung (2.700–4.200
+Zeichen im Test). Das Modell kann damit auf konkrete Anforderungen eingehen,
+statt aus Bruchstücken zu raten. Zwei Eigenheiten: Österreichische Anzeigen
+kommen anonymisiert herein, der Arbeitgeber steht dann nur im Fließtext — Rookru
+meldet das als Warnung. Und weil der Text so viel reichhaltiger ist, schreibt
+das Modell längere Briefe; falls sie regelmäßig gestaucht werden, `max_woerter`
+senken.
 
 karriere.at, StepStone und Indeed lassen sich nicht direkt anbinden: Indeed hat
 seine Publisher-API 2024 abgeschaltet, die StepStone-Schnittstelle dient
 Arbeitgebern zum Inserieren, und karriere.at bietet weder API noch RSS. Über
 `jooble` kommen deren Inhalte trotzdem teilweise herein.
+
+Schlüssel braucht nur, wer die jeweilige Quelle nutzt — `eures` läuft ohne.
 
 Eine Stelle, die bei beiden steht, erscheint einmal — zusammengeführt über Firma
 und Titel, auch bei unterschiedlicher Schreibweise.
@@ -256,7 +271,7 @@ Die Warnungen am Ende sind ernst gemeint. Die häufigsten:
 ### Eine bestimmte Stelle statt der Suche
 
 Für Ausschreibungen, die dir wichtig sind oder die keine Börse liefert:
-Ausschreibung in eine YAML-Datei schreiben (`examples/stellen.beispiel.yaml` als
+Ausschreibung in eine YAML-Datei schreiben (`stellenanzeigen/stellen.beispiel.yaml` als
 Muster) — dort kannst du auch Abteilung, Anschrift, Anrede und Referenz für den
 Briefkopf angeben, die keine API liefert:
 
@@ -280,7 +295,7 @@ unangetastet:
 Änderung an den Vorlagen Seitenumbruch und Bündel zu prüfen:
 
 ```bash
-.venv/bin/python -m rookru bewerben --stellen examples/stellen.beispiel.yaml --offline
+.venv/bin/python -m rookru bewerben --stellen stellenanzeigen/stellen.beispiel.yaml --offline
 ```
 
 ### Alle Optionen
@@ -305,7 +320,7 @@ Problem als Warnung; erst wenn keine einzige antwortet, bricht sie ab.
   Careerjet nur rund 270 — und lässt sich auch per `fragment_size` nicht zu mehr
   überreden. Der Brief wird dadurch allgemeiner. Für Bewerbungen, die dir
   wichtig sind: Ausschreibung in eine eigene YAML-Datei kopieren
-  (`examples/stellen.beispiel.yaml` als Muster) und `--stellen` benutzen — dort
+  (`stellenanzeigen/stellen.beispiel.yaml` als Muster) und `--stellen` benutzen — dort
   kannst du auch Abteilung und Anschrift für den Briefkopf angeben, die keine
   API liefert.
 - **Nach dem Studienfach allein findest du wenig.** Gemessen im August 2026:
