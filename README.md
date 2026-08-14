@@ -65,6 +65,7 @@ Zugangsdaten in `.env` eintragen (Vorlage: `.env.example`):
 ADZUNA_APP_ID=…       # kostenlos: https://developer.adzuna.com/
 ADZUNA_APP_KEY=…
 CAREERJET_API_KEY=…   # kostenlos: https://www.careerjet.com/partners/api/
+JOOBLE_API_KEY=…      # kostenlos auf Anfrage: https://jooble.org/api/about
 MISTRAL_API_KEY=…     # https://console.mistral.ai/
 ```
 
@@ -118,6 +119,12 @@ suche:
 | --- | --- | --- |
 | `adzuna` | breit, viele Länder | mehrwortige Begriffe werden als „alle Wörter" gesucht; kennt einen Altersfilter |
 | `careerjet` | bündelt zusätzliche Börsen | Altersfilter rechnet Rookru selbst; kürzere Ausschreibungstexte |
+| `jooble` | Aggregator, deckt u. a. karriere.at mit ab | Umkreis nur in festen Stufen (0/4/8/16/26/40/80 km) — Rookru rundet; Altersfilter rechnet Rookru selbst |
+
+karriere.at, StepStone und Indeed lassen sich nicht direkt anbinden: Indeed hat
+seine Publisher-API 2024 abgeschaltet, die StepStone-Schnittstelle dient
+Arbeitgebern zum Inserieren, und karriere.at bietet weder API noch RSS. Über
+`jooble` kommen deren Inhalte trotzdem teilweise herein.
 
 Eine Stelle, die bei beiden steht, erscheint einmal — zusammengeführt über Firma
 und Titel, auch bei unterschiedlicher Schreibweise.
@@ -172,19 +179,51 @@ Stichwörter aus `profil.yaml`. Danach ist auch sortiert.
     Angst+Pfister Austria · Wien · 2026-07-19 · adzuna · Titel 2 · Schwerpunkt 0 [—]
 ```
 
-**3. Unterlagen erzeugen** — für die N bestplatzierten Treffer, einer
-Mistral-Aufruf je Stelle:
+**3. Unterlagen wirklich erzeugen** — für die N bestplatzierten Treffer, ein
+Mistral-Aufruf je Stelle. Das ist der eigentliche Zweck des Werkzeugs:
 
 ```bash
 .venv/bin/python -m rookru bewerben --anzahl 3
 ```
 
-**4. Gegenlesen.** Für jede Stelle entsteht ein Ordner
-`out/<Datum>_<Firma>_<Stelle>/` mit Motivationsschreiben und Lebenslauf als
-`.docx` **und** `.pdf`, dem Bündel-PDF und `bewerbung.json` (Brieftext,
-gewählter Schwerpunkt mit Begründung, Warnungen). Am Ende jedes Laufs stehen
-Warnungen im Terminal — etwa dass der Brief die Seite nicht füllt oder die
-Empfängeradresse unvollständig ist.
+Fang beim ersten Mal mit `--anzahl 1` an, sieh dir das Ergebnis an, und dreh
+erst dann hoch.
+
+Der Lauf meldet je Stelle, was er tut:
+
+```
+[1/2] Werkstudent Maschinenbauingenieur — Angst+Pfister Austria
+    Schwerpunkt: Konstruktion / additive Fertigung — Die Ausschreibung betont …
+    Brief: 287 Wörter, 1 Seite(n)
+    Bündel: 2026_08_14_Bewerbungsunterlagen_AngstPfisterAustria.pdf (11 Seiten)
+    Ordner: /…/out/2026_08_14_AngstPfisterAustria_WerkstudentMaschinenbauingen
+    ⚠ Empfängeradresse unvollständig (Straße, PLZ/Ort fehlt) — …
+```
+
+**4. Ergebnis ansehen.** Je Stelle entsteht ein Ordner
+`out/<Datum>_<Firma>_<Stelle>/`:
+
+| Datei | Wozu |
+| --- | --- |
+| `<Datum>_Bewerbungsunterlagen_<Firma>.pdf` | **das fertige Bündel** — Brief, Lebenslauf und alle Anlagen mit Lesezeichen; das ist die Datei, die du verschickst |
+| `Motivationsschreiben_<Name>_<Firma>.pdf` / `.docx` | einzeln, falls ein Portal die Teile getrennt will. Das `.docx` ist zum Nachbessern da |
+| `Lebenslauf_<Name>_<Firma>.pdf` / `.docx` | dito |
+| `bewerbung.json` | Brieftext, gewählter Schwerpunkt samt Begründung, alle Warnungen — zum Nachlesen, was das Modell warum entschieden hat |
+
+**5. Gegenlesen — das bleibt deine Aufgabe.** Sinnvolle Reihenfolge: Brief
+ganz lesen; im Lebenslauf die drei änderbaren Abschnitte (AUSBILDUNG, PROJEKTE,
+BESONDERE KENNTNISSE) mit deiner Vorlage vergleichen; Empfängeradresse prüfen,
+wenn du per Post schickst. Nachbessern kannst du im `.docx` — dann aber neu nach
+PDF exportieren, denn das Bündel wird dabei nicht automatisch neu gebaut.
+
+Die Warnungen am Ende sind ernst gemeint. Die häufigsten:
+
+| Warnung | Was zu tun ist |
+| --- | --- |
+| `Empfängeradresse unvollständig` | Adresse im `.docx` ergänzen oder die Stelle per `--stellen` mit voller Anschrift erfassen |
+| `Motivationsschreiben füllt nur X %` | `brief.min_woerter` anheben |
+| `Absatzabstände auf X % gestaucht` | Brief war zu lang — `brief.max_woerter` senken |
+| `Projekt '…' nicht in der Vorlage gefunden` | das Modell wollte etwas außerhalb der freigegebenen Abschnitte ändern; die Schutzlogik hat es abgelehnt, meist unkritisch |
 
 ### Eine bestimmte Stelle statt der Suche
 
@@ -256,8 +295,9 @@ Problem als Warnung; erst wenn keine einzige antwortet, bricht sie ab.
   `max_woerter` bestimmen, wie voll die Seite wird; wie viele Wörter darauf
   passen, hängt an Schrift, Rändern und Absatzzahl deiner Vorlage. Wird der
   Brief zweiseitig, ist `max_woerter` zu hoch; meldet Rookru einen niedrigen
-  Füllgrad, ist `min_woerter` zu niedrig. Das Modell trifft die Vorgabe nur
-  ungefähr — ein Puffer von rund 25 Wörtern zur Kippkante ist sinnvoll.
+  Füllgrad, ist `min_woerter` zu niedrig. **Das Modell überschießt die
+  Obergrenze regelmäßig um 10–15 %** — setze `max_woerter` entsprechend
+  niedriger als das, was gerade noch auf die Seite passt.
 - **Deine Daten gehen an die Mistral-API.** Für jede Bewerbung werden dein
   Lebenslauf-Inhalt und die Stellenausschreibung übertragen. Ohne API-Zugriff
   läuft nur `--offline`, und der erzeugt reinen Platzhaltertext.

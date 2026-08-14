@@ -17,6 +17,7 @@ from .sources import (
     QUELLEN,
     AdzunaError,
     CareerjetError,
+    JoobleError,
     SourceError,
     load_jobs_file,
     rank_jobs,
@@ -88,6 +89,7 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
     schluessel = {
         "adzuna": ("ADZUNA_APP_ID", "ADZUNA_APP_KEY"),
         "careerjet": ("CAREERJET_API_KEY",),
+        "jooble": ("JOOBLE_API_KEY",),
     }
     for quelle in settings.search.sources:
         if quelle not in QUELLEN:
@@ -250,7 +252,14 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (ConfigError, AdzunaError, CareerjetError, SourceError, ConversionError) as exc:
+    except (
+        ConfigError,
+        AdzunaError,
+        CareerjetError,
+        JoobleError,
+        SourceError,
+        ConversionError,
+    ) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

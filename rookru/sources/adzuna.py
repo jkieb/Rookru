@@ -16,10 +16,9 @@ from typing import Any
 
 from ..config import SearchSettings
 from ..models import Job
-from .common import excluded
+from .common import USER_AGENT, excluded
 
 API_BASE = "https://api.adzuna.com/v1/api/jobs"
-USER_AGENT = "rookru/0.1 (persönliche Bewerbungsautomatisierung)"
 
 
 class AdzunaError(RuntimeError):

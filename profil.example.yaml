@@ -47,7 +47,12 @@ schwerpunkte:
 
 suche:
   land: at                 # Ländercode: at, de, ch, …
-  quellen: [adzuna, careerjet]   # Stellenbörsen; je Quelle ein Schlüssel in .env
+  # Stellenbörsen; je Quelle ein Schlüssel in .env. Mögliche Werte:
+  # adzuna, careerjet, jooble (jooble deckt u. a. karriere.at mit ab)
+  quellen: [adzuna, careerjet]
+  # Jooble-Schlüssel gelten nur für die Länderseite, auf der sie
+  # beantragt wurden — hier die passende eintragen (Standard: jooble.org)
+  jooble_host: de.jooble.org
   query:                   # ein Begriff oder mehrere; Treffer werden zusammengeführt
     - Werkstudent Maschinenbau
     - studentische Aushilfe Maschinenbau
@@ -68,9 +73,9 @@ ki:
 
 brief:
   absaetze: 5              # Anzahl Absätze im Motivationsschreiben
-  min_woerter: 295         # Untergrenze, damit die Seite auch voll wird
-  max_woerter: 320         # Obergrenze mit Reserve — das Modell zielt nur
-                           # grob; ab ~345 Wörtern kippt der Brief
+  min_woerter: 265         # Untergrenze, damit die Seite auch voll wird
+  max_woerter: 295         # Obergrenze mit Reserve: das Modell überschießt
+                           # um bis zu 15 %, und ab ~345 Wörtern kippt der Brief
                            # auf zwei Seiten (an der Vorlage ausgemessen)
   tonfall: sachlich, konkret, ohne Werbefloskeln
 

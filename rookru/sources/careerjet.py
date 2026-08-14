@@ -14,16 +14,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 from ..config import SearchSettings
 from ..models import Job
-from .common import excluded
+from .common import USER_AGENT, clean_text, excluded, zu_alt
 
 API_URL = "https://search.api.careerjet.net/v4/query"
-USER_AGENT = "rookru/0.1 (persönliche Bewerbungsautomatisierung)"
 # Careerjet weist Anfragen ohne Referer ab (HTTP 403, "Undeclared referrer").
 REFERER = "https://github.com/jkieb/Rookru"
 RETRY_CODES = (429, 502, 503, 504)
@@ -107,18 +105,6 @@ def _fetch(url: str, key: str, timeout: int = 30, versuche: int = 3) -> dict:
     raise CareerjetError("Careerjet nicht erreichbar")  # pragma: no cover
 
 
-def _clean(text: str) -> str:
-    """Careerjet hebt Suchwörter mit <b> hervor — im Brief hat das nichts verloren."""
-    return (
-        str(text)
-        .replace("<b>", "")
-        .replace("</b>", "")
-        .replace("&amp;", "&")
-        .replace("&nbsp;", " ")
-        .strip()
-    )
-
-
 def _date(raw: str) -> str:
     """'Wed, 05 Aug 2026 07:25:37 GMT' → '2026-08-05'."""
     try:
@@ -132,25 +118,14 @@ def _to_job(raw: dict) -> Job:
     return Job(
         # Careerjet vergibt keine ID; die Weiterleitungs-URL ist je Anzeige eindeutig.
         id=url[-32:],
-        title=_clean(raw.get("title", "")),
-        company=_clean(raw.get("company", "")),
-        description=_clean(raw.get("description", "")),
-        location=_clean(raw.get("locations", "")),
+        title=clean_text(raw.get("title", "")),
+        company=clean_text(raw.get("company", "")),
+        description=clean_text(raw.get("description", "")),
+        location=clean_text(raw.get("locations", "")),
         url=url,
         created=_date(str(raw.get("date", ""))),
         source="careerjet",
     )
-
-
-def _zu_alt(job: Job, max_days_old: int) -> bool:
-    """Careerjet kennt keinen Altersfilter — das erledigt der Aufrufer."""
-    if not max_days_old or not job.created:
-        return False
-    try:
-        erschienen = datetime.fromisoformat(job.created).replace(tzinfo=timezone.utc)
-    except ValueError:
-        return False
-    return erschienen < datetime.now(timezone.utc) - timedelta(days=max_days_old)
 
 
 def search_jobs(settings: SearchSettings, page: int = 1) -> list[Job]:
@@ -161,7 +136,7 @@ def search_jobs(settings: SearchSettings, page: int = 1) -> list[Job]:
         data = _fetch(build_url(settings, query, page), key)
         for raw in data.get("jobs", []):
             job = _to_job(raw)
-            if excluded(job, settings) or _zu_alt(job, settings.max_days_old):
+            if excluded(job, settings) or zu_alt(job, settings.max_days_old):
                 continue
             jobs.setdefault(job.id or f"{job.company}|{job.title}", job)
     return list(jobs.values())

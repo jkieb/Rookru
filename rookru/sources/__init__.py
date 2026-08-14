@@ -9,13 +9,20 @@ from .adzuna import search_jobs as search_adzuna
 from .careerjet import CareerjetError
 from .careerjet import search_jobs as search_careerjet
 from .common import dedup_key, excluded
+from .jooble import JoobleError
+from .jooble import search_jobs as search_jooble
 from .local import load_jobs_file
 
-QUELLEN = {"adzuna": search_adzuna, "careerjet": search_careerjet}
+QUELLEN = {
+    "adzuna": search_adzuna,
+    "careerjet": search_careerjet,
+    "jooble": search_jooble,
+}
 
 __all__ = [
     "AdzunaError",
     "CareerjetError",
+    "JoobleError",
     "QUELLEN",
     "dedup_key",
     "excluded",
@@ -48,7 +55,7 @@ def search_all(settings: SearchSettings) -> tuple[list[Job], list[str]]:
             continue
         try:
             treffer = suche(settings)
-        except (AdzunaError, CareerjetError) as exc:
+        except (AdzunaError, CareerjetError, JoobleError) as exc:
             probleme.append(str(exc))
             continue
         erreichbar += 1

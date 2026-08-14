@@ -36,6 +36,8 @@ from rookru.render import letter as letter_render
 from rookru.render.bundle import BundleError, merge_pdfs
 from rookru.sources import rank_jobs, search_all
 from rookru.sources import careerjet as cj
+from rookru.sources import jooble as jb
+from rookru.sources.common import clean_text, zu_alt
 from rookru.sources.adzuna import build_url
 from rookru.sources.common import dedup_key
 from rookru.sources.local import load_jobs_file
@@ -403,14 +405,78 @@ def test_careerjet_treffer_wird_zu_job() -> None:
     assert job.id
 
 
-def test_careerjet_altersfilter() -> None:
+def test_altersfilter_fuer_quellen_ohne_eigenen() -> None:
     from datetime import date, timedelta
 
     frisch = Job(id="1", title="T", company="C", created=date.today().isoformat())
     alt = Job(id="2", title="T", company="C", created=(date.today() - timedelta(days=90)).isoformat())
-    assert cj._zu_alt(frisch, 30) is False
-    assert cj._zu_alt(alt, 30) is True
-    assert cj._zu_alt(alt, 0) is False  # ohne Filter bleibt alles
+    assert zu_alt(frisch, 30) is False
+    assert zu_alt(alt, 30) is True
+    assert zu_alt(alt, 0) is False  # ohne Filter bleibt alles
+    assert zu_alt(Job(id="3", title="T", company="C"), 30) is False  # ohne Datum nichts wegwerfen
+
+
+def test_markup_wird_aus_anzeigentexten_entfernt() -> None:
+    assert clean_text("<b>Werkstudent</b>:in") == "Werkstudent:in"
+    assert clean_text("ACME &amp; Co") == "ACME & Co"
+    assert clean_text("mehrere    Leerzeichen\nund Umbrüche") == "mehrere Leerzeichen und Umbrüche"
+
+
+# ------------------------------------------------------------------- Jooble
+
+
+def test_jooble_body_enthaelt_ort_und_erlaubten_umkreis() -> None:
+    settings = SearchSettings(where="Wien", distance_km=25, results=20)
+    body = jb.build_body(settings, "Werkstudent Maschinenbau", 1)
+    assert body["keywords"] == "Werkstudent Maschinenbau"
+    assert body["location"] == "Wien"
+    assert body["radius"] == "26"  # 25 ist keine erlaubte Stufe
+    assert body["ResultOnPage"] == 20
+
+
+def test_jooble_umkreis_wird_auf_erlaubte_stufe_gerundet() -> None:
+    assert jb.radius_stufe(0) == 0
+    assert jb.radius_stufe(25) == 26
+    assert jb.radius_stufe(10) == 8
+    assert jb.radius_stufe(500) == 80  # größer als die höchste Stufe
+
+
+def test_jooble_ohne_ort_kein_umkreis() -> None:
+    assert "radius" not in jb.build_body(SearchSettings(distance_km=25), "Maschinenbau", 1)
+
+
+def test_jooble_treffer_wird_zu_job() -> None:
+    job = jb._to_job({
+        "id": "-1234567890",
+        "title": "<b>Werkstudent</b> Maschinenbau (m/w/d)",
+        "company": "ACME &amp; Co",
+        "location": "Wien",
+        "snippet": "Laufendes Studium <b>Maschinenbau</b>...",
+        "link": "https://at.jooble.org/jdp/-1234567890",
+        "updated": "2026-08-14T12:55:35.3870000",
+    })
+    assert job.title == "Werkstudent Maschinenbau (m/w/d)"
+    assert job.company == "ACME & Co"
+    assert job.created == "2026-08-14"  # siebenstellige Bruchsekunden abgeschnitten
+    assert job.source == "jooble"
+
+
+def test_jooble_unbrauchbares_datum_bleibt_leer() -> None:
+    assert jb._date("") == ""
+    assert jb._date("gestern") == ""
+
+
+def test_user_agent_ist_ascii() -> None:
+    """Ein Umlaut in der Kopfzeile lässt Jooble die Anfrage mit HTTP 400 abweisen."""
+    from rookru.sources.common import USER_AGENT
+
+    USER_AGENT.encode("ascii")  # wirft bei Nicht-ASCII
+
+
+def test_jooble_ohne_schluessel_meldet_klar(monkeypatch) -> None:
+    monkeypatch.delenv("JOOBLE_API_KEY", raising=False)
+    with pytest.raises(jb.JoobleError, match="jooble.org/api/about"):
+        jb.api_key()
 
 
 def test_dieselbe_stelle_aus_zwei_quellen_zaehlt_einmal() -> None:

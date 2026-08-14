@@ -53,6 +53,7 @@ class SearchSettings:
     country: str = "at"
     sources: list[str] = field(default_factory=lambda: ["adzuna"])
     locale: str = ""  # leer → aus dem Ländercode abgeleitet (Careerjet)
+    jooble_host: str = ""  # leer → jooble.org; Schlüssel gelten je Länderseite
     queries: list[str] = field(default_factory=lambda: ["Werkstudent Maschinenbau"])
     where: str = ""
     distance_km: int = 0
@@ -198,6 +199,7 @@ def load_settings(path: str | Path) -> Settings:
         country=str(suche.get("land", "at")).lower(),
         sources=[str(q).strip().lower() for q in raw_sources if str(q).strip()],
         locale=str(suche.get("locale", "")),
+        jooble_host=str(suche.get("jooble_host", "")).strip().lower(),
         queries=[q for q in queries if q.strip()],
         where=str(suche.get("ort", "")),
         distance_km=int(suche.get("umkreis_km", 0) or 0),
