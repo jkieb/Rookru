@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from typing import Callable, Optional
 
 from ..config import SearchSettings
 from ..models import Job
+
+# Rückmeldung je erledigtem Suchbegriff — speist den Fortschrittsbalken.
+Melder = Optional[Callable[[str], None]]
 
 # HTTP-Kopfzeilen muessen ASCII sein (RFC 7230). Ein Umlaut hier laesst
 # Jooble die Anfrage mit HTTP 400 abweisen — daher bewusst ohne.

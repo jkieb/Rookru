@@ -16,7 +16,7 @@ from typing import Any
 
 from ..config import SearchSettings
 from ..models import Job
-from .common import USER_AGENT, excluded
+from .common import USER_AGENT, Melder, excluded
 
 API_BASE = "https://api.adzuna.com/v1/api/jobs"
 
@@ -109,7 +109,9 @@ def _to_job(raw: dict) -> Job:
     )
 
 
-def search_jobs(settings: SearchSettings, page: int = 1) -> list[Job]:
+def search_jobs(
+    settings: SearchSettings, page: int = 1, melden: Melder = None
+) -> list[Job]:
     """Sucht über alle konfigurierten Suchbegriffe und entfernt Doppeltreffer."""
     app_id, app_key = credentials()
     jobs: dict[str, Job] = {}
@@ -121,4 +123,6 @@ def search_jobs(settings: SearchSettings, page: int = 1) -> list[Job]:
                 continue
             key = job.id or f"{job.company}|{job.title}"
             jobs.setdefault(key, job)
+        if melden:
+            melden(query)
     return list(jobs.values())

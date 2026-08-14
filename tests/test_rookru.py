@@ -34,7 +34,7 @@ from rookru.render import cv as cv_render
 from rookru.render import docx_tools as dt
 from rookru.render import letter as letter_render
 from rookru.render.bundle import BundleError, merge_pdfs
-from rookru.sources import rank_jobs, search_all
+from rookru.sources import anfragen, rank_jobs, search_all
 from rookru.sources import careerjet as cj
 from rookru.sources import jooble as jb
 from rookru.sources.common import clean_text, zu_alt
@@ -485,13 +485,60 @@ def test_dieselbe_stelle_aus_zwei_quellen_zaehlt_einmal() -> None:
     assert dedup_key(a) == dedup_key(b)
 
 
+def test_anfragen_zaehlt_begriffe_mal_quellen() -> None:
+    einstellungen = SearchSettings(
+        sources=["adzuna", "jooble", "gibtsnicht"], queries=["a", "b", "c", "d"]
+    )
+    assert anfragen(einstellungen) == 8  # unbekannte Quelle zählt nicht mit
+
+
+def test_fortschritt_meldet_jede_abfrage(monkeypatch) -> None:
+    from rookru import sources
+
+    def quelle(settings, melden=None):
+        for query in settings.queries:
+            if melden:
+                melden(query)
+        return []
+
+    monkeypatch.setitem(sources.QUELLEN, "adzuna", quelle)
+    monkeypatch.setitem(sources.QUELLEN, "jooble", quelle)
+    einstellungen = SearchSettings(sources=["adzuna", "jooble"], queries=["a", "b", "c"])
+
+    gemeldet: list[tuple[str, str]] = []
+    search_all(einstellungen, melden=lambda q, t: gemeldet.append((q, t)))
+    assert len(gemeldet) == anfragen(einstellungen) == 6
+    assert gemeldet[0] == ("adzuna", "a") and gemeldet[-1] == ("jooble", "c")
+
+
+def test_ausgefallene_quelle_laesst_den_balken_nicht_haengen(monkeypatch) -> None:
+    """Bricht eine Quelle ab, müssen ihre restlichen Schritte trotzdem zählen."""
+    from rookru import sources
+
+    def kaputt_nach_einem(settings, melden=None):
+        if melden:
+            melden(settings.queries[0])
+        raise sources.JoobleError("Schlüssel abgelehnt")
+
+    monkeypatch.setitem(sources.QUELLEN, "jooble", kaputt_nach_einem)
+    monkeypatch.setitem(
+        sources.QUELLEN, "adzuna", lambda s, melden=None: [Job(id="1", title="T", company="C")]
+    )
+    einstellungen = SearchSettings(sources=["adzuna", "jooble"], queries=["a", "b", "c"])
+
+    gemeldet: list[tuple[str, str]] = []
+    search_all(einstellungen, melden=lambda q, t: gemeldet.append((q, t)))
+    jooble_schritte = [g for g in gemeldet if g[0] == "jooble"]
+    assert len(jooble_schritte) == 3  # einer echt, zwei nachgetragen
+
+
 def test_ausfall_einer_quelle_verwirft_die_andere_nicht(monkeypatch) -> None:
     from rookru import sources
 
     treffer = [Job(id="1", title="Werkstudent Maschinenbau", company="ACME")]
-    monkeypatch.setitem(sources.QUELLEN, "adzuna", lambda s: treffer)
+    monkeypatch.setitem(sources.QUELLEN, "adzuna", lambda s, melden=None: treffer)
 
-    def kaputt(_settings):
+    def kaputt(_settings, melden=None):
         raise sources.CareerjetError("API-Key prüfen")
 
     monkeypatch.setitem(sources.QUELLEN, "careerjet", kaputt)
@@ -503,7 +550,7 @@ def test_ausfall_einer_quelle_verwirft_die_andere_nicht(monkeypatch) -> None:
 def test_alle_quellen_kaputt_ist_ein_fehler(monkeypatch) -> None:
     from rookru import sources
 
-    def kaputt(_settings):
+    def kaputt(_settings, melden=None):
         raise sources.AdzunaError("nicht erreichbar")
 
     monkeypatch.setitem(sources.QUELLEN, "adzuna", kaputt)

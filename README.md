@@ -127,8 +127,10 @@ Daraus werden `Werkstudent Maschinenbau`, `Werkstudent Konstruktion`, …,
 gehört das, was du kannst, nicht das, was du studierst.
 
 **Jede Kombination ist eine Anfrage je Quelle.** 24 Begriffe × 3 Börsen sind 72
-Anfragen und rund anderthalb Minuten. Wird es zu langsam, kürze die
-Themenliste — sie ist der Hebel.
+Anfragen und rund anderthalb Minuten; ein Fortschrittsbalken zeigt, wo die Suche
+gerade steht. Wird es zu langsam, kürze die Themenliste — sie ist der Hebel.
+
+Der Balken läuft auf stderr, `rookru suchen > treffer.txt` bleibt also sauber.
 
 ### Stellenquellen
 
@@ -256,7 +258,7 @@ Die Warnungen am Ende sind ernst gemeint. Die häufigsten:
 ### Eine bestimmte Stelle statt der Suche
 
 Für Ausschreibungen, die dir wichtig sind oder die keine Börse liefert:
-Ausschreibung in eine YAML-Datei schreiben (`examples/stellen.beispiel.yaml` als
+Ausschreibung in eine YAML-Datei schreiben (`stellenanzeigen/stellen.beispiel.yaml` als
 Muster) — dort kannst du auch Abteilung, Anschrift, Anrede und Referenz für den
 Briefkopf angeben, die keine API liefert:
 
@@ -280,7 +282,7 @@ unangetastet:
 Änderung an den Vorlagen Seitenumbruch und Bündel zu prüfen:
 
 ```bash
-.venv/bin/python -m rookru bewerben --stellen examples/stellen.beispiel.yaml --offline
+.venv/bin/python -m rookru bewerben --stellen stellenanzeigen/stellen.beispiel.yaml --offline
 ```
 
 ### Alle Optionen
@@ -305,7 +307,7 @@ Problem als Warnung; erst wenn keine einzige antwortet, bricht sie ab.
   Careerjet nur rund 270 — und lässt sich auch per `fragment_size` nicht zu mehr
   überreden. Der Brief wird dadurch allgemeiner. Für Bewerbungen, die dir
   wichtig sind: Ausschreibung in eine eigene YAML-Datei kopieren
-  (`examples/stellen.beispiel.yaml` als Muster) und `--stellen` benutzen — dort
+  (`stellenanzeigen/stellen.beispiel.yaml` als Muster) und `--stellen` benutzen — dort
   kannst du auch Abteilung und Anschrift für den Briefkopf angeben, die keine
   API liefert.
 - **Nach dem Studienfach allein findest du wenig.** Gemessen im August 2026:

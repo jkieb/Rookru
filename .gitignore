@@ -19,3 +19,7 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
+# Eigene Stellenanzeigen — nur die Beispieldatei gehört ins Repo
+stellenanzeigen/*
+!stellenanzeigen/stellen.beispiel.yaml

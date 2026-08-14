@@ -19,7 +19,7 @@ from typing import Any
 
 from ..config import SearchSettings
 from ..models import Job
-from .common import USER_AGENT, clean_text, excluded, zu_alt
+from .common import USER_AGENT, Melder, clean_text, excluded, zu_alt
 
 API_URL = "https://search.api.careerjet.net/v4/query"
 # Careerjet weist Anfragen ohne Referer ab (HTTP 403, "Undeclared referrer").
@@ -128,7 +128,9 @@ def _to_job(raw: dict) -> Job:
     )
 
 
-def search_jobs(settings: SearchSettings, page: int = 1) -> list[Job]:
+def search_jobs(
+    settings: SearchSettings, page: int = 1, melden: Melder = None
+) -> list[Job]:
     """Sucht über alle konfigurierten Suchbegriffe und entfernt Doppeltreffer."""
     key = api_key()
     jobs: dict[str, Job] = {}
@@ -139,4 +141,6 @@ def search_jobs(settings: SearchSettings, page: int = 1) -> list[Job]:
             if excluded(job, settings) or zu_alt(job, settings.max_days_old):
                 continue
             jobs.setdefault(job.id or f"{job.company}|{job.title}", job)
+        if melden:
+            melden(query)
     return list(jobs.values())

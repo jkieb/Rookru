@@ -1,5 +1,5 @@
 # Stellen von Hand erfassen — für Ausschreibungen, die nicht über Adzuna kommen.
-# Aufruf: rookru bewerben --stellen examples/stellen.beispiel.yaml
+# Aufruf: rookru bewerben --stellen stellenanzeigen/stellen.beispiel.yaml
 - firma: Knorr-Bremse GmbH
   titel: Studentische Aushilfe – 3D-Druck & technische Dokumentation (20h)
   abteilung: Personalabteilung

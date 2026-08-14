@@ -8,7 +8,7 @@ from .adzuna import AdzunaError
 from .adzuna import search_jobs as search_adzuna
 from .careerjet import CareerjetError
 from .careerjet import search_jobs as search_careerjet
-from .common import dedup_key, excluded
+from .common import Melder, dedup_key, excluded
 from .jooble import JoobleError
 from .jooble import search_jobs as search_jooble
 from .local import load_jobs_file
@@ -24,6 +24,7 @@ __all__ = [
     "CareerjetError",
     "JoobleError",
     "QUELLEN",
+    "anfragen",
     "dedup_key",
     "excluded",
     "load_jobs_file",
@@ -37,12 +38,22 @@ class SourceError(RuntimeError):
     """Keine einzige Quelle war erreichbar."""
 
 
-def search_all(settings: SearchSettings) -> tuple[list[Job], list[str]]:
+def anfragen(settings: SearchSettings) -> int:
+    """Wie viele Abfragen die Suche stellen wird — Gesamtwert für den Balken."""
+    return len(settings.queries) * len([q for q in settings.sources if q in QUELLEN])
+
+
+def search_all(
+    settings: SearchSettings, melden: Melder = None
+) -> tuple[list[Job], list[str]]:
     """Sucht über alle konfigurierten Quellen und führt die Treffer zusammen.
 
     Zurück kommen die Stellen und die Fehlermeldungen einzelner Quellen: Fällt
     eine Börse aus, ist das kein Grund, die Treffer der anderen wegzuwerfen.
     Erst wenn keine Quelle liefert, fliegt ein Fehler.
+
+    `melden` wird nach jedem erledigten Suchbegriff mit Quelle und Begriff
+    aufgerufen und speist den Fortschrittsbalken.
     """
     jobs: dict[str, Job] = {}
     probleme: list[str] = []
@@ -53,10 +64,22 @@ def search_all(settings: SearchSettings) -> tuple[list[Job], list[str]]:
         if suche is None:
             probleme.append(f"Unbekannte Quelle '{name}' — bekannt: {', '.join(QUELLEN)}")
             continue
+        erledigt = 0
+
+        def gemeldet(query: str, quelle: str = name) -> None:
+            nonlocal erledigt
+            erledigt += 1
+            if melden:
+                melden(quelle, query)
+
         try:
-            treffer = suche(settings)
+            treffer = suche(settings, melden=gemeldet)
         except (AdzunaError, CareerjetError, JoobleError) as exc:
             probleme.append(str(exc))
+            # Die ausgefallene Quelle bleibt sonst als Lücke im Balken stehen.
+            for query in settings.queries[erledigt:]:
+                if melden:
+                    melden(name, query)
             continue
         erreichbar += 1
         for job in treffer:

@@ -7,6 +7,8 @@ import os
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 from .compose import ComposerError, build_composer, detect_focus
 from .config import ConfigError, Settings, load_settings
 from .models import Job
@@ -19,12 +21,37 @@ from .sources import (
     CareerjetError,
     JoobleError,
     SourceError,
+    anfragen,
     load_jobs_file,
     rank_jobs,
     search_all,
 )
 
 DEFAULT_PROFILE = "profil.yaml"
+
+
+def suchen_mit_balken(settings: Settings) -> tuple[list[Job], list[str]]:
+    """Sucht über alle Quellen und zeigt dabei einen Fortschrittsbalken.
+
+    Die Kombinationssuche stellt je Suchbegriff und Quelle eine Anfrage — das
+    dauert über eine Minute und sähe sonst aus, als hänge das Programm. Der
+    Balken läuft auf stderr, damit `rookru suchen > treffer.txt` sauber bleibt.
+    """
+    with tqdm(
+        total=anfragen(settings.search),
+        desc="Suche",
+        unit="Abfrage",
+        leave=False,
+        file=sys.stderr,
+        disable=not sys.stderr.isatty(),
+        bar_format="  {desc} {bar} {n_fmt}/{total_fmt} · {postfix}",
+    ) as balken:
+
+        def melden(quelle: str, query: str) -> None:
+            balken.set_postfix_str(f"{quelle}: {query}", refresh=False)
+            balken.update(1)
+
+        return search_all(settings.search, melden=melden)
 
 
 def load_dotenv(path: Path = Path(".env")) -> None:
@@ -132,7 +159,7 @@ def cmd_suchen(args: argparse.Namespace) -> int:
     print(f"Suche: '{begriffe}' in {settings.search.country.upper()}"
           f"{' / ' + settings.search.where if settings.search.where else ''}"
           f" über {', '.join(settings.search.sources)}\n")
-    jobs, probleme = search_all(settings.search)
+    jobs, probleme = suchen_mit_balken(settings)
     for problem in probleme:
         print(f"⚠ {problem}\n")
     pairs = rank_jobs(
@@ -154,7 +181,7 @@ def _collect_jobs(args: argparse.Namespace, settings: Settings) -> list[Job]:
         settings.search.queries = [args.query]
     if args.ort:
         settings.search.where = args.ort
-    jobs, probleme = search_all(settings.search)
+    jobs, probleme = suchen_mit_balken(settings)
     for problem in probleme:
         print(f"⚠ {problem}")
     pairs = rank_jobs(
@@ -258,6 +285,7 @@ def main(argv: list[str] | None = None) -> int:
         CareerjetError,
         JoobleError,
         SourceError,
+    anfragen,
         ConversionError,
     ) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
