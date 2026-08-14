@@ -28,6 +28,7 @@ from .sources import (
 )
 
 DEFAULT_PROFILE = "profil.yaml"
+BESCHRIFTUNG = 34  # Zeichen für "quelle: suchbegriff" im Fortschrittsbalken
 
 
 def suchen_mit_balken(settings: Settings) -> tuple[list[Job], list[str]]:
@@ -39,16 +40,18 @@ def suchen_mit_balken(settings: Settings) -> tuple[list[Job], list[str]]:
     """
     with tqdm(
         total=anfragen(settings.search),
-        desc="Suche",
-        unit="Abfrage",
+        desc=f"{'Suche läuft':<{BESCHRIFTUNG}.{BESCHRIFTUNG}}",
         leave=False,
         file=sys.stderr,
         disable=not sys.stderr.isatty(),
-        bar_format="  {desc} {bar} {n_fmt}/{total_fmt} · {postfix}",
+        bar_format="  {desc} {bar} {n_fmt}/{total_fmt}",
     ) as balken:
 
         def melden(quelle: str, query: str) -> None:
-            balken.set_postfix_str(f"{quelle}: {query}", refresh=False)
+            # Feste Breite, sonst springt der Balken bei jedem Suchbegriff.
+            balken.set_description_str(
+                f"{quelle}: {query}"[:BESCHRIFTUNG].ljust(BESCHRIFTUNG), refresh=False
+            )
             balken.update(1)
 
         return search_all(settings.search, melden=melden)
