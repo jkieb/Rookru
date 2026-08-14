@@ -214,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument(
         "--offline",
         action="store_true",
-        help="Ohne Claude-API: Platzhaltertext, nur zum Prüfen des Layouts",
+        help="Ohne Mistral-API: Platzhaltertext, nur zum Prüfen des Layouts",
     )
     p_apply.set_defaults(func=cmd_bewerben)
     return parser
