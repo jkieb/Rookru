@@ -46,11 +46,22 @@ schwerpunkte:
     hervorheben: [Prusa MK3S+, Bachelorarbeit, Printables, Autodesk Fusion 360]
 
 suche:
-  land: at                 # Adzuna-Ländercode: at, de, ch, …
-  query:                   # ein Begriff oder mehrere; Treffer werden zusammengeführt
-    - Werkstudent Maschinenbau
-    - studentische Aushilfe Maschinenbau
-    - Praktikum Maschinenbau
+  land: at                 # Ländercode: at, de, ch, …
+  # Stellenbörsen; je Quelle ein Schlüssel in .env. Mögliche Werte:
+  # adzuna, careerjet, jooble (jooble deckt u. a. karriere.at mit ab)
+  quellen: [adzuna, careerjet]
+  # Jooble-Schlüssel gelten nur für die Länderseite, auf der sie
+  # beantragt wurden — hier die passende eintragen (Standard: jooble.org)
+  jooble_host: de.jooble.org
+  # Kombinationssuche: jede Rolle wird mit jedem Thema kombiniert
+  # ("Werkstudent VBA", "Praktikum CAD", …). Die Börsen durchsuchen den
+  # Volltext der Anzeige, deshalb findet die Suche nach eigenen Fähigkeiten
+  # auch Stellen, die das Studienfach gar nicht nennen.
+  # Achtung: jede Kombination ist eine Anfrage je Quelle.
+  rollen: [Werkstudent, Praktikum, studentische Aushilfe]
+  themen: [Maschinenbau, Konstruktion, CAD, 3D-Druck, Python, VBA, SQL, Datenauswertung]
+  query:                   # zusätzliche Begriffe, unabhängig von den Kombinationen
+    - Werkstudent Maschinenbauingenieur
   ort: Wien
   umkreis_km: 25
   treffer: 20
@@ -67,9 +78,9 @@ ki:
 
 brief:
   absaetze: 5              # Anzahl Absätze im Motivationsschreiben
-  min_woerter: 295         # Untergrenze, damit die Seite auch voll wird
-  max_woerter: 320         # Obergrenze mit Reserve — das Modell zielt nur
-                           # grob; ab ~345 Wörtern kippt der Brief
+  min_woerter: 265         # Untergrenze, damit die Seite auch voll wird
+  max_woerter: 295         # Obergrenze mit Reserve: das Modell überschießt
+                           # um bis zu 15 %, und ab ~345 Wörtern kippt der Brief
                            # auf zwei Seiten (an der Vorlage ausgemessen)
   tonfall: sachlich, konkret, ohne Werbefloskeln
 

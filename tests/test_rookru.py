@@ -34,7 +34,12 @@ from rookru.render import cv as cv_render
 from rookru.render import docx_tools as dt
 from rookru.render import letter as letter_render
 from rookru.render.bundle import BundleError, merge_pdfs
-from rookru.sources.adzuna import build_url, rank_jobs
+from rookru.sources import rank_jobs, search_all
+from rookru.sources import careerjet as cj
+from rookru.sources import jooble as jb
+from rookru.sources.common import clean_text, zu_alt
+from rookru.sources.adzuna import build_url
+from rookru.sources.common import dedup_key
 from rookru.sources.local import load_jobs_file
 
 # ---------------------------------------------------------------- Hilfsvorlagen
@@ -367,6 +372,150 @@ def test_halb_leere_seite_warnt() -> None:
     assert "62%" in warnung and "min_woerter" in warnung
 
 
+# ---------------------------------------------------------------- Careerjet
+
+
+def test_careerjet_url_enthaelt_ort_und_umkreis() -> None:
+    settings = SearchSettings(country="at", where="Wien", distance_km=25, results=20)
+    url = cj.build_url(settings, "Werkstudent Maschinenbau", 1)
+    assert "locale_code=de_AT" in url
+    assert "location=Wien" in url and "radius=25" in url
+    assert "keywords=Werkstudent+Maschinenbau" in url
+
+
+def test_careerjet_locale_aus_land_ableitbar_und_ueberschreibbar() -> None:
+    assert cj.locale_for(SearchSettings(country="de")) == "de_DE"
+    assert cj.locale_for(SearchSettings(country="fr")) == "en_GB"
+    assert cj.locale_for(SearchSettings(country="at", locale="en_GB")) == "en_GB"
+
+
+def test_careerjet_treffer_wird_zu_job() -> None:
+    job = cj._to_job({
+        "title": "<b>Werkstudent</b>:in Konstruktion",
+        "company": "ACME &amp; Co",
+        "locations": "Wien, Wien",
+        "description": "Laufendes Studium <b>Maschinenbau</b>",
+        "date": "Wed, 05 Aug 2026 07:25:37 GMT",
+        "url": "https://jobviewtrack.com/v2/abcdef",
+    })
+    assert job.title == "Werkstudent:in Konstruktion"  # <b> entfernt
+    assert job.company == "ACME & Co"
+    assert job.created == "2026-08-05"
+    assert job.source == "careerjet"
+    assert job.id
+
+
+def test_altersfilter_fuer_quellen_ohne_eigenen() -> None:
+    from datetime import date, timedelta
+
+    frisch = Job(id="1", title="T", company="C", created=date.today().isoformat())
+    alt = Job(id="2", title="T", company="C", created=(date.today() - timedelta(days=90)).isoformat())
+    assert zu_alt(frisch, 30) is False
+    assert zu_alt(alt, 30) is True
+    assert zu_alt(alt, 0) is False  # ohne Filter bleibt alles
+    assert zu_alt(Job(id="3", title="T", company="C"), 30) is False  # ohne Datum nichts wegwerfen
+
+
+def test_markup_wird_aus_anzeigentexten_entfernt() -> None:
+    assert clean_text("<b>Werkstudent</b>:in") == "Werkstudent:in"
+    assert clean_text("ACME &amp; Co") == "ACME & Co"
+    assert clean_text("mehrere    Leerzeichen\nund Umbrüche") == "mehrere Leerzeichen und Umbrüche"
+
+
+# ------------------------------------------------------------------- Jooble
+
+
+def test_jooble_body_enthaelt_ort_und_erlaubten_umkreis() -> None:
+    settings = SearchSettings(where="Wien", distance_km=25, results=20)
+    body = jb.build_body(settings, "Werkstudent Maschinenbau", 1)
+    assert body["keywords"] == "Werkstudent Maschinenbau"
+    assert body["location"] == "Wien"
+    assert body["radius"] == "26"  # 25 ist keine erlaubte Stufe
+    assert body["ResultOnPage"] == 20
+
+
+def test_jooble_umkreis_wird_auf_erlaubte_stufe_gerundet() -> None:
+    assert jb.radius_stufe(0) == 0
+    assert jb.radius_stufe(25) == 26
+    assert jb.radius_stufe(10) == 8
+    assert jb.radius_stufe(500) == 80  # größer als die höchste Stufe
+
+
+def test_jooble_ohne_ort_kein_umkreis() -> None:
+    assert "radius" not in jb.build_body(SearchSettings(distance_km=25), "Maschinenbau", 1)
+
+
+def test_jooble_treffer_wird_zu_job() -> None:
+    job = jb._to_job({
+        "id": "-1234567890",
+        "title": "<b>Werkstudent</b> Maschinenbau (m/w/d)",
+        "company": "ACME &amp; Co",
+        "location": "Wien",
+        "snippet": "Laufendes Studium <b>Maschinenbau</b>...",
+        "link": "https://at.jooble.org/jdp/-1234567890",
+        "updated": "2026-08-14T12:55:35.3870000",
+    })
+    assert job.title == "Werkstudent Maschinenbau (m/w/d)"
+    assert job.company == "ACME & Co"
+    assert job.created == "2026-08-14"  # siebenstellige Bruchsekunden abgeschnitten
+    assert job.source == "jooble"
+
+
+def test_jooble_unbrauchbares_datum_bleibt_leer() -> None:
+    assert jb._date("") == ""
+    assert jb._date("gestern") == ""
+
+
+def test_user_agent_ist_ascii() -> None:
+    """Ein Umlaut in der Kopfzeile lässt Jooble die Anfrage mit HTTP 400 abweisen."""
+    from rookru.sources.common import USER_AGENT
+
+    USER_AGENT.encode("ascii")  # wirft bei Nicht-ASCII
+
+
+def test_jooble_ohne_schluessel_meldet_klar(monkeypatch) -> None:
+    monkeypatch.delenv("JOOBLE_API_KEY", raising=False)
+    with pytest.raises(jb.JoobleError, match="jooble.org/api/about"):
+        jb.api_key()
+
+
+def test_dieselbe_stelle_aus_zwei_quellen_zaehlt_einmal() -> None:
+    a = Job(id="ad-1", title="Werkstudent Maschinenbau", company="ACME GmbH", source="adzuna")
+    b = Job(id="cj-9", title="Werkstudent Maschinenbau", company="ACME GmbH", source="careerjet")
+    assert dedup_key(a) == dedup_key(b)
+
+
+def test_ausfall_einer_quelle_verwirft_die_andere_nicht(monkeypatch) -> None:
+    from rookru import sources
+
+    treffer = [Job(id="1", title="Werkstudent Maschinenbau", company="ACME")]
+    monkeypatch.setitem(sources.QUELLEN, "adzuna", lambda s: treffer)
+
+    def kaputt(_settings):
+        raise sources.CareerjetError("API-Key prüfen")
+
+    monkeypatch.setitem(sources.QUELLEN, "careerjet", kaputt)
+    jobs, probleme = search_all(SearchSettings(sources=["adzuna", "careerjet"]))
+    assert [j.id for j in jobs] == ["1"]
+    assert any("API-Key" in p for p in probleme)
+
+
+def test_alle_quellen_kaputt_ist_ein_fehler(monkeypatch) -> None:
+    from rookru import sources
+
+    def kaputt(_settings):
+        raise sources.AdzunaError("nicht erreichbar")
+
+    monkeypatch.setitem(sources.QUELLEN, "adzuna", kaputt)
+    with pytest.raises(sources.SourceError, match="nicht erreichbar"):
+        search_all(SearchSettings(sources=["adzuna"]))
+
+
+def test_unbekannte_quelle_meldet_sich() -> None:
+    with pytest.raises(Exception, match="Unbekannte Quelle"):
+        search_all(SearchSettings(sources=["monster"]))
+
+
 def test_adresse_unvollstaendig_warnt() -> None:
     warnungen = describe_address(Job(id="1", title="T", company="Personalberatung"))
     assert warnungen and "Straße" in warnungen[0] and "PLZ/Ort" in warnungen[0]
@@ -382,6 +531,53 @@ def test_stellen_datei_braucht_pflichtfelder(tmp_path: Path) -> None:
     path.write_text("- firma: ACME\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="titel"):
         load_jobs_file(path)
+
+
+def _profil_mit_suche(tmp_path: Path, suche_yaml: str) -> Path:
+    pfad = tmp_path / "profil.yaml"
+    pfad.write_text(
+        "bewerber:\n  name: Max Muster\n"
+        "vorlagen:\n  motivationsschreiben: b.docx\n  lebenslauf: l.docx\n"
+        f"suche:\n{suche_yaml}",
+        encoding="utf-8",
+    )
+    return pfad
+
+
+def test_rollen_und_themen_werden_kombiniert(tmp_path: Path) -> None:
+    """Werkstudentenstellen nennen das Studienfach oft nicht — daher nach Können suchen."""
+    pfad = _profil_mit_suche(
+        tmp_path, "  rollen: [Werkstudent, Praktikum]\n  themen: [VBA, CAD]\n  query: []\n"
+    )
+    assert load_settings(pfad).search.queries == [
+        "Werkstudent VBA",
+        "Werkstudent CAD",
+        "Praktikum VBA",
+        "Praktikum CAD",
+    ]
+
+
+def test_eigene_begriffe_stehen_vor_den_kombinationen(tmp_path: Path) -> None:
+    pfad = _profil_mit_suche(
+        tmp_path,
+        "  query: [Werkstudent Maschinenbauingenieur]\n  rollen: [Werkstudent]\n  themen: [SQL]\n",
+    )
+    assert load_settings(pfad).search.queries == [
+        "Werkstudent Maschinenbauingenieur",
+        "Werkstudent SQL",
+    ]
+
+
+def test_doppelte_suchbegriffe_werden_zusammengefasst(tmp_path: Path) -> None:
+    pfad = _profil_mit_suche(
+        tmp_path, "  query: [Werkstudent CAD]\n  rollen: [Werkstudent]\n  themen: [CAD, CAD]\n"
+    )
+    assert load_settings(pfad).search.queries == ["Werkstudent CAD"]
+
+
+def test_ohne_rollen_bleibt_es_bei_den_eigenen_begriffen(tmp_path: Path) -> None:
+    pfad = _profil_mit_suche(tmp_path, "  query: [Werkstudent Maschinenbau]\n  themen: [CAD]\n")
+    assert load_settings(pfad).search.queries == ["Werkstudent Maschinenbau"]
 
 
 def test_fehlende_konfiguration_meldet_pfad(tmp_path: Path) -> None:
