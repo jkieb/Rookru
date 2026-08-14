@@ -1,6 +1,7 @@
 # Persönliche Daten — nichts hiervon gehört ins Repository
 privat/
 out/
+suchlaeufe/
 profil.yaml
 .env
 

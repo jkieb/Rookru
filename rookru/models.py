@@ -42,6 +42,27 @@ class Job:
 
 
 @dataclass
+class Screening:
+    """Urteil der KI-Vorauswahl über eine gefundene Stelle.
+
+    `score` und `reason` kommen vom Modell, `title_hits` und `focus_score` aus
+    der mechanischen Suche — im Protokoll stehen beide nebeneinander, damit
+    nachvollziehbar bleibt, wo die KI anders entschieden hat als das Ranking.
+    """
+
+    job: Job
+    fits: bool
+    score: int = 0  # 0–100, wie gut die Stelle laut Modell zum Profil passt
+    reason: str = ""
+    title_hits: int = 0
+    focus_score: int = 0
+    rated: bool = True  # False: Das Modell hat diese Stelle übergangen
+
+    def sort_key(self) -> tuple:
+        return (self.fits, self.score, self.title_hits, self.focus_score)
+
+
+@dataclass
 class TemplateData:
     """Was einmalig aus der Lebenslauf-Vorlage gelesen wird.
 

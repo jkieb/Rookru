@@ -5,16 +5,19 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import textwrap
 from pathlib import Path
 
 from tqdm import tqdm
 
 from .compose import ComposerError, build_composer, detect_focus
 from .config import ConfigError, Settings, load_settings
-from .models import Job
-from .pipeline import build_application, load_style_example, read_template
+from .models import Job, Screening, TemplateData
+from .pipeline import build_application, load_style_example, read_template, save_search_run
 from .render.bundle import BundleError
 from .render.convert import ConversionError, find_soffice
+from .screening import ScreeningError, build_screener
+from .screening import anfragen as vorauswahl_anfragen
 from .sources import (
     QUELLEN,
     AdzunaError,
@@ -56,6 +59,76 @@ def suchen_mit_balken(settings: Settings) -> tuple[list[Job], list[str]]:
             balken.update(1)
 
         return search_all(settings.search, melden=melden)
+
+
+def vorauswahl_mit_balken(
+    settings: Settings,
+    pairs: list[tuple[Job, int, int]],
+    template: TemplateData,
+    offline: bool = False,
+) -> tuple[list[Screening] | None, str]:
+    """Lässt die KI über die Treffer schauen; zeigt dabei einen Balken.
+
+    Scheitert die Vorauswahl, ist das kein Grund, den ganzen Suchlauf
+    wegzuwerfen: Es bleibt dann bei der Reihung der Suche, und der Grund steht
+    als Warnung darüber.
+    """
+    try:
+        screener = build_screener(offline=offline, ai=settings.ai)
+    except ScreeningError as exc:
+        print(f"⚠ KI-Vorauswahl übersprungen — {exc}\n")
+        return None, ""
+
+    with tqdm(
+        total=vorauswahl_anfragen(len(pairs)),
+        desc=f"{'KI-Vorauswahl läuft':<{BESCHRIFTUNG}.{BESCHRIFTUNG}}",
+        leave=False,
+        file=sys.stderr,
+        disable=not sys.stderr.isatty(),
+        bar_format="  {desc} {bar} {n_fmt}/{total_fmt}",
+    ) as balken:
+
+        def melden(nummer: int, gesamt: int) -> None:
+            balken.set_description_str(
+                f"KI prüft Stapel {nummer}/{gesamt}".ljust(BESCHRIFTUNG), refresh=False
+            )
+            balken.update(1)
+
+        try:
+            return screener.screen(settings, pairs, template, melden=melden), screener.model
+        except ScreeningError as exc:
+            print(f"⚠ KI-Vorauswahl fehlgeschlagen, es bleibt bei der Reihung der Suche: {exc}\n")
+            return None, ""
+
+
+def suchlauf(
+    args: argparse.Namespace,
+    settings: Settings,
+    template: TemplateData | None = None,
+    offline: bool = False,
+) -> tuple[list[tuple[Job, int, int]], list[Screening] | None, Path | None]:
+    """Suchen, reihen, von der KI prüfen lassen und beide Ergebnisse ablegen."""
+    jobs, probleme = suchen_mit_balken(settings)
+    for problem in probleme:
+        print(f"⚠ {problem}\n")
+    pairs = rank_jobs(
+        jobs, settings.focus_rules, settings.search.min_score, settings.search.queries
+    )
+    if not pairs:
+        return [], None, None
+
+    urteile, modell = None, ""
+    if settings.ai.screening and not args.ohne_vorauswahl:
+        if template is None:
+            try:
+                template = read_template(settings.templates.cv)
+            except Exception as exc:  # ohne Faktenblatt fehlt der Maßstab
+                print(f"⚠ KI-Vorauswahl übersprungen — Lebenslauf-Vorlage nicht lesbar: {exc}\n")
+        if template is not None:
+            urteile, modell = vorauswahl_mit_balken(settings, pairs, template, offline)
+
+    ordner = save_search_run(settings, pairs, urteile, probleme, model=modell)
+    return pairs, urteile, ordner
 
 
 def load_dotenv(path: Path = Path(".env")) -> None:
@@ -116,6 +189,13 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
         ok = False
         print("✗ MISTRAL_API_KEY fehlt (für --offline nicht nötig)")
 
+    if settings.ai.screening:
+        print(f"✓ KI-Vorauswahl aktiv (Modell: {settings.ai.model_for_screening()}, "
+              f"ab {settings.ai.screening_min} Punkten passend)")
+        print(f"  Suchläufe werden abgelegt unter: {settings.runs_dir}")
+    else:
+        print("· KI-Vorauswahl abgeschaltet (ki.vorauswahl: false)")
+
     # Geprüft wird nur, was in suche.quellen auch benutzt wird.
     schluessel = {
         "adzuna": ("ADZUNA_APP_ID", "ADZUNA_APP_KEY"),
@@ -139,16 +219,41 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _kennzahlen(job: Job, settings: Settings, hits: int, score: int) -> str:
+    focus = detect_focus(job, settings.focus_rules)
+    return (f"    {job.company} · {job.location or 'Ort unbekannt'} · "
+            f"{job.created or 'ohne Datum'} · {job.source} · "
+            f"Titel {hits} · Schwerpunkt {score} {f'[{focus.key}]' if focus else '[—]'}")
+
+
 def _print_jobs(pairs: list[tuple[Job, int, int]], settings: Settings) -> None:
     for i, (job, score, hits) in enumerate(pairs, 1):
-        focus = detect_focus(job, settings.focus_rules)
-        marker = f"[{focus.key}]" if focus else "[—]"
         print(f"{i:2d}. {job.title}")
-        print(f"    {job.company} · {job.location or 'Ort unbekannt'} · "
-              f"{job.created or 'ohne Datum'} · {job.source} · "
-              f"Titel {hits} · Schwerpunkt {score} {marker}")
+        print(_kennzahlen(job, settings, hits, score))
         if job.url:
             print(f"    {job.url}")
+
+
+def _print_screenings(urteile: list[Screening], settings: Settings) -> None:
+    for i, urteil in enumerate(urteile, 1):
+        job = urteil.job
+        print(f"{i:2d}. [{urteil.score:3d}] {job.title}")
+        print(_kennzahlen(job, settings, urteil.title_hits, urteil.focus_score))
+        if urteil.reason:
+            print(textwrap.fill(
+                urteil.reason, width=96, initial_indent="    KI: ", subsequent_indent="        "
+            ))
+        if job.url:
+            print(f"    {job.url}")
+
+
+def _print_vorauswahl_bilanz(urteile: list[Screening], gesamt: int, modell: str) -> None:
+    passend = sum(1 for u in urteile if u.fits)
+    ohne_urteil = sum(1 for u in urteile if not u.rated)
+    print(f"\nKI-Vorauswahl ({modell}): {passend} von {gesamt} Treffern passen zum Profil, "
+          f"{gesamt - passend} aussortiert — Begründungen in vorauswahl.json.")
+    if ohne_urteil:
+        print(f"⚠ {ohne_urteil} Stelle(n) ohne Urteil — sie stehen bei den aussortierten.")
 
 
 def cmd_suchen(args: argparse.Namespace) -> int:
@@ -164,21 +269,31 @@ def cmd_suchen(args: argparse.Namespace) -> int:
     print(f"Suche: '{begriffe}' in {settings.search.country.upper()}"
           f"{' / ' + settings.search.where if settings.search.where else ''}"
           f" über {', '.join(settings.search.sources)}\n")
-    jobs, probleme = suchen_mit_balken(settings)
-    for problem in probleme:
-        print(f"⚠ {problem}\n")
-    pairs = rank_jobs(
-        jobs, settings.focus_rules, settings.search.min_score, settings.search.queries
-    )
+    pairs, urteile, ordner = suchlauf(args, settings)
     if not pairs:
         print("Keine Treffer. Suchbegriff weiter fassen oder 'ausschliessen' in profil.yaml prüfen.")
         return 1
-    _print_jobs(pairs, settings)
-    print(f"\n{len(pairs)} Treffer. Bewerbungen erzeugen: rookru bewerben --anzahl N")
+
+    if urteile is None:
+        _print_jobs(pairs, settings)
+        print(f"\n{len(pairs)} Treffer.")
+    else:
+        passend = [u for u in urteile if u.fits]
+        if passend:
+            _print_screenings(passend, settings)
+        else:
+            print("Die KI hält keinen der Treffer für passend — "
+                  "aussortierte samt Begründung stehen in vorauswahl.json.")
+        _print_vorauswahl_bilanz(urteile, len(pairs), settings.ai.model_for_screening())
+
+    print(f"Suchlauf gespeichert: {ordner}")
+    print("Bewerbungen erzeugen: rookru bewerben --anzahl N")
     return 0
 
 
-def _collect_jobs(args: argparse.Namespace, settings: Settings) -> list[Job]:
+def _collect_jobs(
+    args: argparse.Namespace, settings: Settings, template: TemplateData | None = None
+) -> list[Job]:
     if args.stellen:
         jobs = load_jobs_file(args.stellen)
         return jobs[: args.anzahl] if args.anzahl else jobs
@@ -186,13 +301,16 @@ def _collect_jobs(args: argparse.Namespace, settings: Settings) -> list[Job]:
         settings.search.queries = [args.query]
     if args.ort:
         settings.search.where = args.ort
-    jobs, probleme = suchen_mit_balken(settings)
-    for problem in probleme:
-        print(f"⚠ {problem}")
-    pairs = rank_jobs(
-        jobs, settings.focus_rules, settings.search.min_score, settings.search.queries
-    )
-    return [job for job, _, _ in pairs][: args.anzahl]
+
+    pairs, urteile, ordner = suchlauf(args, settings, template, offline=args.offline)
+    if not pairs:
+        return []
+    if urteile is not None:
+        _print_vorauswahl_bilanz(urteile, len(pairs), settings.ai.model_for_screening())
+    print(f"Suchlauf gespeichert: {ordner}\n")
+    if urteile is None:
+        return [job for job, _, _ in pairs][: args.anzahl]
+    return [urteil.job for urteil in urteile if urteil.fits][: args.anzahl]
 
 
 def cmd_bewerben(args: argparse.Namespace) -> int:
@@ -204,9 +322,12 @@ def cmd_bewerben(args: argparse.Namespace) -> int:
             print(f"  {entry}")
         return 1
 
-    jobs = _collect_jobs(args, settings)
+    template_data = read_template(settings.templates.cv)
+    jobs = _collect_jobs(args, settings, template_data)
     if not jobs:
-        print("Keine passenden Stellen gefunden.")
+        print("Keine passenden Stellen gefunden."
+              + ("" if args.ohne_vorauswahl else " Mit --ohne-vorauswahl bewirbst du dich "
+                 "auf die bestplatzierten Treffer der Suche, ohne die KI zu fragen."))
         return 1
 
     try:
@@ -217,7 +338,6 @@ def cmd_bewerben(args: argparse.Namespace) -> int:
     if args.offline:
         print("⚠ Testmodus: Brieftexte sind Platzhalter und nicht versandfertig.\n")
 
-    template_data = read_template(settings.templates.cv)
     style_example = load_style_example(settings)
 
     erfolge, fehler = 0, 0
@@ -263,6 +383,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--query", help="Suchbegriff (überschreibt profil.yaml)")
     p_search.add_argument("--ort", help="Ort (überschreibt profil.yaml)")
     p_search.add_argument("--treffer", type=int, help="Anzahl Treffer")
+    p_search.add_argument(
+        "--ohne-vorauswahl",
+        action="store_true",
+        help="Ohne KI-Vorauswahl: nur die Reihung der Suche, kein Mistral-Aufruf",
+    )
     p_search.set_defaults(func=cmd_suchen)
 
     p_apply = sub.add_parser("bewerben", help="Unterlagen für gefundene Stellen erzeugen")
@@ -270,6 +395,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument("--query", help="Suchbegriff (überschreibt profil.yaml)")
     p_apply.add_argument("--ort", help="Ort (überschreibt profil.yaml)")
     p_apply.add_argument("--stellen", help="YAML-Datei mit Stellen statt Online-Suche")
+    p_apply.add_argument(
+        "--ohne-vorauswahl",
+        action="store_true",
+        help="Ohne KI-Vorauswahl: die bestplatzierten Treffer der Suche nehmen",
+    )
     p_apply.add_argument(
         "--offline",
         action="store_true",
@@ -288,10 +418,10 @@ def main(argv: list[str] | None = None) -> int:
         ConfigError,
         AdzunaError,
         CareerjetError,
-    EuresError,
+        EuresError,
         JoobleError,
         SourceError,
-    anfragen,
+        ScreeningError,
         ConversionError,
     ) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)

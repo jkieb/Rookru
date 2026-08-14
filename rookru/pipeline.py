@@ -1,15 +1,15 @@
-"""Ablauf je Stelle: Text erzeugen, Dokumente bauen, Bündel zusammenstellen."""
+"""Ablauf: Suchlauf protokollieren, je Stelle Text erzeugen und Dokumente bauen."""
 
 from __future__ import annotations
 
 import json
 import re
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from .config import Settings
-from .models import Application, Job, TemplateData
+from .models import Application, Job, Screening, TemplateData
 from .render import bundle, convert, cv, letter
 from .sources.common import UNBEKANNT
 
@@ -74,6 +74,105 @@ def describe_address(job: Job) -> list[str]:
             "selbst ergänzen oder die Stelle über --stellen mit voller Adresse erfassen."
         )
     return warnungen
+
+
+def kurzfassung(job: Job) -> dict:
+    """Nur so viel von einer Stelle, dass man sie wiedererkennt und aufruft."""
+    return {
+        "titel": job.title,
+        "firma": job.company,
+        "ort": job.location,
+        "quelle": job.source,
+        "url": job.url,
+    }
+
+
+def save_search_run(
+    settings: Settings,
+    pairs: list[tuple[Job, int, int]],
+    screenings: list[Screening] | None,
+    problems: list[str],
+    model: str = "",
+    root: Path | None = None,
+) -> Path:
+    """Legt beide Ergebnisse eines Suchlaufs in einem eigenen Ordner ab.
+
+    `suche.json` enthält alles, was die Börsen gefunden haben, in der
+    Reihenfolge des mechanischen Rankings; `vorauswahl.json` das Urteil der KI
+    dazu. Getrennte Dateien, weil die Suche auch ohne Vorauswahl läuft und man
+    dann trotzdem nachlesen können soll, was es gab.
+    """
+    now = datetime.now()
+    root = root or settings.runs_dir
+    stempel = f"{now:%Y_%m_%d_%H%M%S}"
+    directory = root / stempel
+    # Zwei Läufe in derselben Sekunde dürfen sich nicht vermischen — sonst
+    # stünde die Vorauswahl des einen neben dem Suchergebnis des anderen.
+    zaehler = 2
+    while directory.exists():
+        directory = root / f"{stempel}_{zaehler}"
+        zaehler += 1
+    directory.mkdir(parents=True)
+    zeitpunkt = now.isoformat(timespec="seconds")
+
+    suche = {
+        "erstellt": zeitpunkt,
+        "suchauftrag": {
+            "begriffe": list(settings.search.queries),
+            "land": settings.search.country,
+            "ort": settings.search.where,
+            "umkreis_km": settings.search.distance_km,
+            "quellen": list(settings.search.sources),
+            "max_tage": settings.search.max_days_old,
+        },
+        "probleme": list(problems),
+        "anzahl": len(pairs),
+        "stellen": [
+            {
+                "platz": platz,
+                "titel_treffer": hits,
+                "schwerpunkt_treffer": score,
+                "stelle": asdict(job),
+            }
+            for platz, (job, score, hits) in enumerate(pairs, 1)
+        ],
+    }
+    (directory / "suche.json").write_text(
+        json.dumps(suche, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    if screenings is not None:
+        passend = [s for s in screenings if s.fits]
+        aussortiert = [s for s in screenings if not s.fits]
+        vorauswahl = {
+            "erstellt": zeitpunkt,
+            "modell": model,
+            "mindestpunkte": settings.ai.screening_min,
+            "geprueft": len(screenings),
+            "passend_anzahl": len(passend),
+            "ohne_urteil": sum(1 for s in screenings if not s.rated),
+            # Die passenden Stellen vollständig, damit sich mit dieser Datei
+            # allein weiterarbeiten lässt; die aussortierten knapp — sie stehen
+            # ungekürzt nebenan in suche.json.
+            "passend": [
+                {
+                    "punkte": s.score,
+                    "begruendung": s.reason,
+                    "titel_treffer": s.title_hits,
+                    "schwerpunkt_treffer": s.focus_score,
+                    "stelle": asdict(s.job),
+                }
+                for s in passend
+            ],
+            "aussortiert": [
+                {"punkte": s.score, "begruendung": s.reason, **kurzfassung(s.job)}
+                for s in aussortiert
+            ],
+        }
+        (directory / "vorauswahl.json").write_text(
+            json.dumps(vorauswahl, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    return directory
 
 
 def read_template(cv_template: Path) -> TemplateData:

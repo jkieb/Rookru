@@ -1,6 +1,7 @@
 # Rookru
 
-Findet passende Stellen bei Adzuna und Careerjet und erzeugt daraus vollständige
+Sucht Stellen bei Adzuna, Careerjet, Jooble und EURES, lässt eine KI aussieben,
+welche davon wirklich zum Profil passen, und erzeugt daraus vollständige
 Bewerbungsunterlagen: ein je Stelle neu geschriebenes Motivationsschreiben, einen
 auf die Stelle zugeschnittenen Lebenslauf und ein fertiges PDF-Bündel mit allen
 Anlagen.
@@ -17,15 +18,21 @@ Abschicken machst du selbst.
    im Stellentitel stehen, dann nach passenden Schwerpunkt-Stichwörtern — so
    steht die gesuchte Werkstudentenstelle vor der Vollzeitstelle, die zufällig
    mehr Fachbegriffe enthält.
-2. **Schwerpunkt bestimmen** — anhand der Ausschreibung: eine Software-Stelle
+2. **KI-Vorauswahl** — die Suche zählt nur zusammenfallende Wörter. Danach liest
+   ein Modell alle gefundenen Anzeigen gegen dein Faktenblatt und deinen
+   Suchauftrag und sagt je Anzeige, ob sich eine Bewerbung lohnt (0–100 Punkte
+   plus ein Satz Begründung). Das kostet **nicht** einen Aufruf je Anzeige:
+   Bis zu 30 Anzeigen gehen gebündelt in eine Anfrage. Suchergebnis und Urteil
+   landen in `suchlaeufe/<Zeitstempel>/`. Siehe „KI-Vorauswahl" unten.
+3. **Schwerpunkt bestimmen** — anhand der Ausschreibung: eine Software-Stelle
    rückt GitHub und CS50 nach vorne, eine Konstruktionsstelle den privaten
    3D-Drucker und die Bachelorarbeit. Regeln stehen in `profil.yaml`.
-3. **Texten** — ein Aufruf an die Mistral-API (`mistral-large-latest`, in
+4. **Texten** — ein Aufruf an die Mistral-API (`mistral-large-latest`, in
    `profil.yaml` umstellbar) schreibt den Brieftext und die
    Lebenslauf-Anpassung. Die Antwort ist per JSON-Schema festgelegt. Grundlage
    ist ausschließlich dein bestehender Lebenslauf; das Modell darf nichts
    hinzuerfinden.
-4. **Dokumente bauen** —
+5. **Dokumente bauen** —
    - `Motivationsschreiben_<Name>_<Firma>.docx` + `.pdf` (einseitig)
    - `Lebenslauf_<Name>_<Firma>.docx` + `.pdf` (einseitig)
    - `<Datum>_Bewerbungsunterlagen_<Firma>.pdf` — Motivationsschreiben,
@@ -172,6 +179,47 @@ Schlüssel braucht nur, wer die jeweilige Quelle nutzt — `eures` läuft ohne.
 Eine Stelle, die bei beiden steht, erscheint einmal — zusammengeführt über Firma
 und Titel, auch bei unterschiedlicher Schreibweise.
 
+### KI-Vorauswahl
+
+Die Suche kann nur zählen, wie viele Wörter zusammenfallen. Deshalb steht in der
+Trefferliste die Senior-Vollzeitstelle neben der gesuchten Werkstudentenstelle,
+und bei 141 Treffern liest man das nicht mehr durch. Nach der Suche liest darum
+ein Modell die Anzeigen und entscheidet, welche sich wirklich lohnen.
+
+Es bekommt dafür dein Faktenblatt aus der Lebenslauf-Vorlage, deinen Suchauftrag
+(Suchbegriffe, Ort, Ausschlusswörter, Schwerpunkte) und die Anzeigen — und
+liefert je Anzeige **0 bis 100 Punkte, ein Ja/Nein und einen Satz Begründung**.
+Als passend gilt, was das Modell empfiehlt **und** `ki.mindestpunkte` erreicht.
+
+**Eine Anfrage je Anzeige wären hundert Anfragen pro Lauf.** Stattdessen gehen
+bis zu 30 Anzeigen gebündelt in eine Anfrage und kommen als eine Antwort
+zurück — 141 Treffer sind also fünf Anfragen, nicht 141. Damit das ins
+Kontextfenster passt, wird der Anzeigentext auf 900 Zeichen gekürzt; für die
+Frage „passt das überhaupt?" reicht der Anfang. Beim Schreiben des Briefs geht
+später der volle Text an das Modell.
+
+```yaml
+ki:
+  vorauswahl: true
+  vorauswahl_modell: ""    # leer → dasselbe Modell wie zum Schreiben
+  mindestpunkte: 60        # 80+ passt genau, 60–79 lohnt sich, darunter Randfall
+```
+
+Beide Ergebnisse eines Laufs landen in `suchlaeufe/<Datum>_<Uhrzeit>/`:
+
+| Datei | Inhalt |
+| --- | --- |
+| `suche.json` | alles, was die Börsen gefunden haben, in der Reihenfolge der Suche — mit Suchauftrag, Problemen einzelner Börsen und den Kennzahlen `titel_treffer` und `schwerpunkt_treffer` je Stelle |
+| `vorauswahl.json` | das Urteil der KI dazu: `passend` mit vollständiger Stelle, Punkten und Begründung, `aussortiert` knapp mit Grund |
+
+So lässt sich nachlesen, was die KI weggeworfen hat — und wenn sie zu streng
+war, senkst du `mindestpunkte` oder nimmst mit `--ohne-vorauswahl` wieder die
+Reihung der Suche.
+
+Fällt die Vorauswahl aus (kein Schlüssel, API-Fehler), bricht nichts ab: Es gibt
+eine Warnung, und es bleibt bei der Reihung der Suche. Übergeht das Modell eine
+Anzeige, verschwindet sie nicht — sie steht mit Vermerk bei den aussortierten.
+
 | Platzhalter | Inhalt |
 | --- | --- |
 | `{{DATUM}}` | Datum, z. B. `13. August 2026` |
@@ -207,27 +255,49 @@ angepasst werden können:
 .venv/bin/python -m rookru pruefen
 ```
 
-**2. Stellen ansehen, ohne etwas zu erzeugen.** Kostet keinen Mistral-Aufruf:
+**2. Stellen ansehen, ohne Unterlagen zu erzeugen.** Sucht und lässt die KI
+darüberschauen — ein paar Mistral-Aufrufe für den ganzen Lauf, keiner je Stelle:
 
 ```bash
 .venv/bin/python -m rookru suchen
 ```
 
-Jeder Treffer zeigt Firma, Ort, Datum, Quelle und zwei Zahlen: `Titel` sind die
-Wörter des Suchbegriffs im Stellentitel, `Schwerpunkt` die passenden
-Stichwörter aus `profil.yaml`. Danach ist auch sortiert.
+Angezeigt werden die Stellen, die die KI für passend hält, mit ihren Punkten
+vorne und ihrer Begründung darunter. Die drei Zahlen dahinter: `KI` ist das
+Urteil des Modells, `Titel` sind die Wörter des Suchbegriffs im Stellentitel,
+`Schwerpunkt` die passenden Stichwörter aus `profil.yaml`.
 
 ```
- 1. Werkstudent Maschinenbauingenieur Teil- oder Vollzeit (all genders)
+ 1. [ 88] Werkstudent Maschinenbauingenieur Teil- oder Vollzeit (all genders)
     Angst+Pfister Austria · Wien · 2026-07-19 · adzuna · Titel 2 · Schwerpunkt 0 [—]
+    KI: Werkstudentenstelle im Fach, verlangt CAD und Messdatenauswertung — beides
+        über Bachelorarbeit und Prusa MK3S+ belegt; SAP fehlt, ist aber Nebensache.
+    https://www.angst-pfister.com/…
+
+KI-Vorauswahl (mistral-large-latest): 12 von 141 Treffern passen zum Profil,
+129 aussortiert — Begründungen in vorauswahl.json.
+Suchlauf gespeichert: /…/suchlaeufe/2026_08_14_101726
 ```
 
-**3. Unterlagen wirklich erzeugen** — für die N bestplatzierten Treffer, ein
-Mistral-Aufruf je Stelle. Das ist der eigentliche Zweck des Werkzeugs:
+Die aussortierten stehen samt Grund in `suchlaeufe/<Lauf>/vorauswahl.json`, alle
+Treffer ungefiltert in `suche.json` daneben. Ohne KI und ohne Mistral-Aufruf —
+dann kommt die reine Reihung der Suche:
+
+```bash
+.venv/bin/python -m rookru suchen --ohne-vorauswahl
+```
+
+**3. Unterlagen wirklich erzeugen** — für die N Stellen, die die KI-Vorauswahl
+oben angeführt hat, ein Mistral-Aufruf je Stelle. Das ist der eigentliche Zweck
+des Werkzeugs:
 
 ```bash
 .venv/bin/python -m rookru bewerben --anzahl 3
 ```
+
+`bewerben` sucht selbst und lässt auch selbst vorauswählen; der Suchlauf wird
+wie bei `suchen` unter `suchlaeufe/` abgelegt. Mit `--ohne-vorauswahl` nimmt es
+stattdessen die bestplatzierten Treffer der Suche.
 
 Fang beim ersten Mal mit `--anzahl 1` an, sieh dir das Ergebnis an, und dreh
 erst dann hoch.
@@ -306,10 +376,12 @@ unangetastet:
 | `suchen` | `--query TEXT` | Suchbegriff für diesen Lauf |
 | | `--ort ORT` | Ort für diesen Lauf |
 | | `--treffer N` | Treffer je Quelle und Suchbegriff (Standard 20) |
+| | `--ohne-vorauswahl` | ohne KI-Urteil, nur die Reihung der Suche |
 | `bewerben` | `--anzahl N` | wie viele Stellen (Standard 3) |
 | | `--query` / `--ort` | wie bei `suchen` |
 | | `--stellen DATEI` | Stellen aus YAML statt aus der Online-Suche |
-| | `--offline` | Platzhaltertext statt Mistral-Aufruf |
+| | `--ohne-vorauswahl` | wie bei `suchen` |
+| | `--offline` | Platzhaltertext statt Mistral-Aufruf; die Vorauswahl entfällt ebenfalls |
 
 Fällt eine Börse aus, läuft die Suche mit den übrigen weiter und meldet das
 Problem als Warnung; erst wenn keine einzige antwortet, bricht sie ab.
@@ -341,8 +413,15 @@ Problem als Warnung; erst wenn keine einzige antwortet, bricht sie ab.
   Obergrenze regelmäßig um 10–15 %** — setze `max_woerter` entsprechend
   niedriger als das, was gerade noch auf die Seite passt.
 - **Deine Daten gehen an die Mistral-API.** Für jede Bewerbung werden dein
-  Lebenslauf-Inhalt und die Stellenausschreibung übertragen. Ohne API-Zugriff
-  läuft nur `--offline`, und der erzeugt reinen Platzhaltertext.
+  Lebenslauf-Inhalt und die Stellenausschreibung übertragen — bei eingeschalteter
+  Vorauswahl zusätzlich einmal je Suchlauf dein Faktenblatt zusammen mit den
+  gefundenen Anzeigen. Ohne API-Zugriff läuft nur `--offline`, und der erzeugt
+  reinen Platzhaltertext; `suchen --ohne-vorauswahl` kommt ganz ohne Mistral aus.
+- **Die Vorauswahl urteilt nach Anrissen.** Adzuna, Careerjet und Jooble liefern
+  nur 270 bis 500 Zeichen — was dort nicht steht, kann das Modell nicht wissen.
+  Es ist angewiesen, im Zweifel nicht auszusortieren; trotzdem ist ein Blick in
+  die aussortierten (`vorauswahl.json`) am Anfang die Mühe wert, um zu sehen, ob
+  `mindestpunkte` zu hoch steht.
 - **Gegenlesen bleibt Pflicht.** Das Modell soll nichts erfinden und wird
   entsprechend angewiesen — garantieren lässt sich das nicht. Lies den Brief und
   die geänderten Lebenslauf-Zeilen, bevor du etwas abschickst.

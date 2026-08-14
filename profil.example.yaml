@@ -76,6 +76,14 @@ ki:
   modell: mistral-large-latest   # z. B. mistral-medium-latest für weniger Kosten
   temperatur: 0.3                # höher = mehr Variation im Formulieren
   max_tokens: 8000
+  # KI-Vorauswahl: Nach der Suche liest ein Modell die gefundenen Anzeigen und
+  # sagt, welche wirklich zum Profil passen — die Suche zählt nur Wörter und
+  # kennt den Unterschied zwischen Werkstudentenstelle und Senior-Position
+  # nicht. Alle Anzeigen gehen gebündelt in eine Anfrage (bis 30 je Anfrage),
+  # nicht eine Anfrage je Anzeige.
+  vorauswahl: true
+  vorauswahl_modell: ""          # leer → dasselbe Modell wie oben
+  mindestpunkte: 60              # ab wie vielen Punkten (0–100) eine Stelle passt
 
 brief:
   absaetze: 5              # Anzahl Absätze im Motivationsschreiben
@@ -86,3 +94,4 @@ brief:
   tonfall: sachlich, konkret, ohne Werbefloskeln
 
 ausgabe: out               # Zielordner für die erzeugten Bewerbungen
+suchlaeufe: suchlaeufe     # Zielordner für Suchergebnis und KI-Vorauswahl

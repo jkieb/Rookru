@@ -66,11 +66,17 @@ class SearchSettings:
 
 @dataclass
 class AISettings:
-    """Modelleinstellungen für die Texterzeugung (Mistral)."""
+    """Modelleinstellungen für Texterzeugung und Vorauswahl (Mistral)."""
 
     model: str = "mistral-large-latest"
     temperature: float = 0.3
     max_tokens: int = 8000
+    screening: bool = True  # KI prüft die Suchtreffer gegen das Profil
+    screening_model: str = ""  # leer → dasselbe Modell wie zum Schreiben
+    screening_min: int = 60  # ab wie vielen Punkten eine Stelle als passend gilt
+
+    def model_for_screening(self) -> str:
+        return self.screening_model or self.model
 
 
 @dataclass
@@ -97,6 +103,7 @@ class Settings:
     letter: LetterSettings
     ai: AISettings
     output_dir: Path
+    runs_dir: Path
     base_dir: Path
 
     def attachment_labels(self) -> list[str]:
@@ -250,9 +257,13 @@ def load_settings(path: str | Path) -> Settings:
         model=str(ki.get("modell", os.environ.get("MISTRAL_MODEL") or "mistral-large-latest")),
         temperature=float(ki.get("temperatur", 0.3)),
         max_tokens=int(ki.get("max_tokens", 8000)),
+        screening=bool(ki.get("vorauswahl", True)),
+        screening_model=str(ki.get("vorauswahl_modell", "")).strip(),
+        screening_min=int(ki.get("mindestpunkte", 60)),
     )
 
     output_dir = _resolve(base, str(data.get("ausgabe", "out")))
+    runs_dir = _resolve(base, str(data.get("suchlaeufe", "suchlaeufe")))
 
     return Settings(
         applicant=applicant,
@@ -263,5 +274,6 @@ def load_settings(path: str | Path) -> Settings:
         letter=letter,
         ai=ai,
         output_dir=output_dir,
+        runs_dir=runs_dir,
         base_dir=base,
     )
