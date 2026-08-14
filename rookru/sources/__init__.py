@@ -9,6 +9,8 @@ from .adzuna import search_jobs as search_adzuna
 from .careerjet import CareerjetError
 from .careerjet import search_jobs as search_careerjet
 from .common import Melder, dedup_key, excluded
+from .eures import EuresError
+from .eures import search_jobs as search_eures
 from .jooble import JoobleError
 from .jooble import search_jobs as search_jooble
 from .local import load_jobs_file
@@ -17,11 +19,13 @@ QUELLEN = {
     "adzuna": search_adzuna,
     "careerjet": search_careerjet,
     "jooble": search_jooble,
+    "eures": search_eures,
 }
 
 __all__ = [
     "AdzunaError",
     "CareerjetError",
+    "EuresError",
     "JoobleError",
     "QUELLEN",
     "anfragen",
@@ -74,7 +78,7 @@ def search_all(
 
         try:
             treffer = suche(settings, melden=gemeldet)
-        except (AdzunaError, CareerjetError, JoobleError) as exc:
+        except (AdzunaError, CareerjetError, EuresError, JoobleError) as exc:
             probleme.append(str(exc))
             # Die ausgefallene Quelle bleibt sonst als Lücke im Balken stehen.
             for query in settings.queries[erledigt:]:

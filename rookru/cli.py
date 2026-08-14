@@ -19,6 +19,7 @@ from .sources import (
     QUELLEN,
     AdzunaError,
     CareerjetError,
+    EuresError,
     JoobleError,
     SourceError,
     anfragen,
@@ -120,6 +121,7 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
         "adzuna": ("ADZUNA_APP_ID", "ADZUNA_APP_KEY"),
         "careerjet": ("CAREERJET_API_KEY",),
         "jooble": ("JOOBLE_API_KEY",),
+        "eures": (),  # öffentlich, kein Schlüssel nötig
     }
     for quelle in settings.search.sources:
         if quelle not in QUELLEN:
@@ -286,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         ConfigError,
         AdzunaError,
         CareerjetError,
+    EuresError,
         JoobleError,
         SourceError,
     anfragen,

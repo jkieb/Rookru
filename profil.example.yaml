@@ -47,9 +47,10 @@ schwerpunkte:
 
 suche:
   land: at                 # Ländercode: at, de, ch, …
-  # Stellenbörsen; je Quelle ein Schlüssel in .env. Mögliche Werte:
-  # adzuna, careerjet, jooble (jooble deckt u. a. karriere.at mit ab)
-  quellen: [adzuna, careerjet]
+  # Stellenbörsen. Mögliche Werte: adzuna, careerjet, jooble, eures.
+  # jooble deckt u. a. karriere.at mit ab; eures liefert als einzige
+  # den vollen Ausschreibungstext und braucht keinen Schlüssel.
+  quellen: [adzuna, careerjet, jooble, eures]
   # Jooble-Schlüssel gelten nur für die Länderseite, auf der sie
   # beantragt wurden — hier die passende eintragen (Standard: jooble.org)
   jooble_host: de.jooble.org

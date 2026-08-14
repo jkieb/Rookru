@@ -16,7 +16,7 @@ from typing import Any
 
 from ..config import SearchSettings
 from ..models import Job
-from .common import USER_AGENT, Melder, excluded
+from .common import UNBEKANNT, USER_AGENT, Melder, excluded
 
 API_BASE = "https://api.adzuna.com/v1/api/jobs"
 
@@ -94,7 +94,7 @@ def _fetch(url: str, timeout: int = 30, versuche: int = 3) -> dict:
 
 
 def _to_job(raw: dict) -> Job:
-    company = (raw.get("company") or {}).get("display_name", "") or "Unbekanntes Unternehmen"
+    company = (raw.get("company") or {}).get("display_name", "") or UNBEKANNT
     location = (raw.get("location") or {}).get("display_name", "")
     return Job(
         id=str(raw.get("id", "")),

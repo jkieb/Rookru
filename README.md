@@ -67,6 +67,7 @@ ADZUNA_APP_KEY=…
 CAREERJET_API_KEY=…   # kostenlos: https://www.careerjet.com/partners/api/
 JOOBLE_API_KEY=…      # kostenlos auf Anfrage: https://jooble.org/api/about
 MISTRAL_API_KEY=…     # https://console.mistral.ai/
+                      # 'eures' braucht keinen Schlüssel
 ```
 
 Gebraucht wird nur, was in `suche.quellen` steht — wer bloß Adzuna nutzt,
@@ -150,11 +151,23 @@ suche:
 | `adzuna` | breit, viele Länder | mehrwortige Begriffe werden als „alle Wörter" gesucht; kennt einen Altersfilter |
 | `careerjet` | bündelt zusätzliche Börsen | Altersfilter rechnet Rookru selbst; kürzere Ausschreibungstexte |
 | `jooble` | Aggregator, deckt u. a. karriere.at mit ab | Umkreis nur in festen Stufen (0/4/8/16/26/40/80 km) — Rookru rundet; Altersfilter rechnet Rookru selbst |
+| `eures` | EU-Jobportal, wenige, aber gut passende Treffer | **kein Schlüssel nötig**; liefert als einzige Quelle den **vollen Ausschreibungstext**; kein Umkreis, sondern Regionen (Wien, Graz, Linz … sind hinterlegt) |
+
+**Warum EURES trotz weniger Treffer?** Die anderen Börsen liefern nur Anrisse
+von 270 bis 500 Zeichen, EURES die vollständige Ausschreibung (2.700–4.200
+Zeichen im Test). Das Modell kann damit auf konkrete Anforderungen eingehen,
+statt aus Bruchstücken zu raten. Zwei Eigenheiten: Österreichische Anzeigen
+kommen anonymisiert herein, der Arbeitgeber steht dann nur im Fließtext — Rookru
+meldet das als Warnung. Und weil der Text so viel reichhaltiger ist, schreibt
+das Modell längere Briefe; falls sie regelmäßig gestaucht werden, `max_woerter`
+senken.
 
 karriere.at, StepStone und Indeed lassen sich nicht direkt anbinden: Indeed hat
 seine Publisher-API 2024 abgeschaltet, die StepStone-Schnittstelle dient
 Arbeitgebern zum Inserieren, und karriere.at bietet weder API noch RSS. Über
 `jooble` kommen deren Inhalte trotzdem teilweise herein.
+
+Schlüssel braucht nur, wer die jeweilige Quelle nutzt — `eures` läuft ohne.
 
 Eine Stelle, die bei beiden steht, erscheint einmal — zusammengeführt über Firma
 und Titel, auch bei unterschiedlicher Schreibweise.

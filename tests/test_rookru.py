@@ -36,8 +36,9 @@ from rookru.render import letter as letter_render
 from rookru.render.bundle import BundleError, merge_pdfs
 from rookru.sources import anfragen, rank_jobs, search_all
 from rookru.sources import careerjet as cj
+from rookru.sources import eures as eu
 from rookru.sources import jooble as jb
-from rookru.sources.common import clean_text, zu_alt
+from rookru.sources.common import UNBEKANNT, clean_text, zu_alt
 from rookru.sources.adzuna import build_url
 from rookru.sources.common import dedup_key
 from rookru.sources.local import load_jobs_file
@@ -483,6 +484,56 @@ def test_dieselbe_stelle_aus_zwei_quellen_zaehlt_einmal() -> None:
     a = Job(id="ad-1", title="Werkstudent Maschinenbau", company="ACME GmbH", source="adzuna")
     b = Job(id="cj-9", title="Werkstudent Maschinenbau", company="ACME GmbH", source="careerjet")
     assert dedup_key(a) == dedup_key(b)
+
+
+# -------------------------------------------------------------------- EURES
+
+
+def test_eures_bindet_die_rolle_an_den_titel() -> None:
+    """Ohne Titelbindung matchen kurze Themen wie 'CAD' quer durch den Bestand."""
+    body = eu.build_body(SearchSettings(where="Wien"), "Praktikum CAD", 1)
+    assert body["keywords"] == [
+        {"keyword": "Praktikum", "specificSearchCode": "TITLE"},
+        {"keyword": "CAD", "specificSearchCode": "EVERYWHERE"},
+    ]
+
+
+def test_eures_ort_wird_zu_nuts_code() -> None:
+    assert eu.location_codes(SearchSettings(where="Wien")) == ["AT13"]
+    assert eu.location_codes(SearchSettings(where="  GRAZ ")) == ["AT22"]
+    # Unbekannter Ort: landesweit statt gar nicht
+    assert eu.location_codes(SearchSettings(where="Hintertupfing", country="at")) == ["at"]
+
+
+def test_eures_zeitraum_aus_max_tagen() -> None:
+    assert eu.publication_period(1) == "LAST_DAY"
+    assert eu.publication_period(30) == "LAST_MONTH"
+    assert eu.publication_period(90) is None  # kein passender Zeitraum → kein Filter
+    assert eu.publication_period(0) is None
+
+
+def test_eures_millisekunden_werden_zum_datum() -> None:
+    assert eu._date(1785786302591) == "2026-08-03"
+    assert eu._date(None) == ""
+    assert eu._date("kaputt") == ""
+
+
+def test_eures_platzhalter_firma_wird_kenntlich() -> None:
+    assert eu._company({"employer": {"name": "siehe Beschreibung"}}) == UNBEKANNT
+    assert eu._company({}) == UNBEKANNT
+    assert eu._company({"employer": {"name": "Siemens Energy"}}) == "Siemens Energy"
+
+
+def test_stellen_ohne_firmennamen_bleiben_unterscheidbar() -> None:
+    """Sonst verschmelzen zwei verschiedene Anzeigen mit gleichem Titel."""
+    a = Job(id="1", title="Praktikum Technik", company=UNBEKANNT)
+    b = Job(id="2", title="Praktikum Technik", company=UNBEKANNT)
+    assert dedup_key(a) != dedup_key(b)
+
+
+def test_unbekannter_arbeitgeber_wird_gemeldet() -> None:
+    warnungen = describe_address(Job(id="1", title="T", company=UNBEKANNT))
+    assert any("Arbeitgeber nicht genannt" in w for w in warnungen)
 
 
 def test_anfragen_zaehlt_begriffe_mal_quellen() -> None:

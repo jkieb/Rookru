@@ -11,6 +11,7 @@ from pathlib import Path
 from .config import Settings
 from .models import Application, Job, TemplateData
 from .render import bundle, convert, cv, letter
+from .sources.common import UNBEKANNT
 
 LETTER_LABEL = "Motivationsschreiben"
 CV_LABEL = "Lebenslauf"
@@ -57,14 +58,22 @@ def describe_address(job: Job) -> list[str]:
     steht dort ohnehin die Beratung statt des Unternehmens. Beides fällt im
     fertigen Brief kaum auf — deshalb hier ausdrücklich.
     """
+    warnungen = []
+    if job.company == UNBEKANNT:
+        # EURES speist österreichische Anzeigen anonymisiert ein; der Name
+        # steht dann nur im Fließtext der Ausschreibung.
+        warnungen.append(
+            "Arbeitgeber nicht genannt — im Brief steht deshalb "
+            f"'{UNBEKANNT}'. Der Name steht meist im Ausschreibungstext."
+        )
     fehlt = [name for name, wert in (("Straße", job.street), ("PLZ/Ort", job.postal_city))
              if not wert.strip()]
-    if not fehlt:
-        return []
-    return [
-        f"Empfängeradresse unvollständig ({', '.join(fehlt)} fehlt) — für den Postweg "
-        "selbst ergänzen oder die Stelle über --stellen mit voller Adresse erfassen."
-    ]
+    if fehlt:
+        warnungen.append(
+            f"Empfängeradresse unvollständig ({', '.join(fehlt)} fehlt) — für den Postweg "
+            "selbst ergänzen oder die Stelle über --stellen mit voller Adresse erfassen."
+        )
+    return warnungen
 
 
 def read_template(cv_template: Path) -> TemplateData:
