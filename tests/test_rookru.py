@@ -34,7 +34,10 @@ from rookru.render import cv as cv_render
 from rookru.render import docx_tools as dt
 from rookru.render import letter as letter_render
 from rookru.render.bundle import BundleError, merge_pdfs
-from rookru.sources.adzuna import build_url, rank_jobs
+from rookru.sources import rank_jobs, search_all
+from rookru.sources import careerjet as cj
+from rookru.sources.adzuna import build_url
+from rookru.sources.common import dedup_key
 from rookru.sources.local import load_jobs_file
 
 # ---------------------------------------------------------------- Hilfsvorlagen
@@ -365,6 +368,86 @@ def test_halb_leere_seite_warnt() -> None:
     assert describe_fill(0.99, 300, 330) == []
     warnung = describe_fill(0.62, 190, 330)[0]
     assert "62%" in warnung and "min_woerter" in warnung
+
+
+# ---------------------------------------------------------------- Careerjet
+
+
+def test_careerjet_url_enthaelt_ort_und_umkreis() -> None:
+    settings = SearchSettings(country="at", where="Wien", distance_km=25, results=20)
+    url = cj.build_url(settings, "Werkstudent Maschinenbau", 1)
+    assert "locale_code=de_AT" in url
+    assert "location=Wien" in url and "radius=25" in url
+    assert "keywords=Werkstudent+Maschinenbau" in url
+
+
+def test_careerjet_locale_aus_land_ableitbar_und_ueberschreibbar() -> None:
+    assert cj.locale_for(SearchSettings(country="de")) == "de_DE"
+    assert cj.locale_for(SearchSettings(country="fr")) == "en_GB"
+    assert cj.locale_for(SearchSettings(country="at", locale="en_GB")) == "en_GB"
+
+
+def test_careerjet_treffer_wird_zu_job() -> None:
+    job = cj._to_job({
+        "title": "<b>Werkstudent</b>:in Konstruktion",
+        "company": "ACME &amp; Co",
+        "locations": "Wien, Wien",
+        "description": "Laufendes Studium <b>Maschinenbau</b>",
+        "date": "Wed, 05 Aug 2026 07:25:37 GMT",
+        "url": "https://jobviewtrack.com/v2/abcdef",
+    })
+    assert job.title == "Werkstudent:in Konstruktion"  # <b> entfernt
+    assert job.company == "ACME & Co"
+    assert job.created == "2026-08-05"
+    assert job.source == "careerjet"
+    assert job.id
+
+
+def test_careerjet_altersfilter() -> None:
+    from datetime import date, timedelta
+
+    frisch = Job(id="1", title="T", company="C", created=date.today().isoformat())
+    alt = Job(id="2", title="T", company="C", created=(date.today() - timedelta(days=90)).isoformat())
+    assert cj._zu_alt(frisch, 30) is False
+    assert cj._zu_alt(alt, 30) is True
+    assert cj._zu_alt(alt, 0) is False  # ohne Filter bleibt alles
+
+
+def test_dieselbe_stelle_aus_zwei_quellen_zaehlt_einmal() -> None:
+    a = Job(id="ad-1", title="Werkstudent Maschinenbau", company="ACME GmbH", source="adzuna")
+    b = Job(id="cj-9", title="Werkstudent Maschinenbau", company="ACME GmbH", source="careerjet")
+    assert dedup_key(a) == dedup_key(b)
+
+
+def test_ausfall_einer_quelle_verwirft_die_andere_nicht(monkeypatch) -> None:
+    from rookru import sources
+
+    treffer = [Job(id="1", title="Werkstudent Maschinenbau", company="ACME")]
+    monkeypatch.setitem(sources.QUELLEN, "adzuna", lambda s: treffer)
+
+    def kaputt(_settings):
+        raise sources.CareerjetError("API-Key prüfen")
+
+    monkeypatch.setitem(sources.QUELLEN, "careerjet", kaputt)
+    jobs, probleme = search_all(SearchSettings(sources=["adzuna", "careerjet"]))
+    assert [j.id for j in jobs] == ["1"]
+    assert any("API-Key" in p for p in probleme)
+
+
+def test_alle_quellen_kaputt_ist_ein_fehler(monkeypatch) -> None:
+    from rookru import sources
+
+    def kaputt(_settings):
+        raise sources.AdzunaError("nicht erreichbar")
+
+    monkeypatch.setitem(sources.QUELLEN, "adzuna", kaputt)
+    with pytest.raises(sources.SourceError, match="nicht erreichbar"):
+        search_all(SearchSettings(sources=["adzuna"]))
+
+
+def test_unbekannte_quelle_meldet_sich() -> None:
+    with pytest.raises(Exception, match="Unbekannte Quelle"):
+        search_all(SearchSettings(sources=["monster"]))
 
 
 def test_adresse_unvollstaendig_warnt() -> None:

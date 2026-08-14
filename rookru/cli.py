@@ -13,8 +13,15 @@ from .models import Job
 from .pipeline import build_application, load_style_example, read_template
 from .render.bundle import BundleError
 from .render.convert import ConversionError, find_soffice
-from .sources.adzuna import AdzunaError, rank_jobs, search_jobs
-from .sources.local import load_jobs_file
+from .sources import (
+    QUELLEN,
+    AdzunaError,
+    CareerjetError,
+    SourceError,
+    load_jobs_file,
+    rank_jobs,
+    search_all,
+)
 
 DEFAULT_PROFILE = "profil.yaml"
 
@@ -77,11 +84,22 @@ def cmd_pruefen(args: argparse.Namespace) -> int:
         ok = False
         print("✗ MISTRAL_API_KEY fehlt (für --offline nicht nötig)")
 
-    if os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"):
-        print("✓ Adzuna-Zugang gesetzt")
-    else:
-        ok = False
-        print("✗ ADZUNA_APP_ID / ADZUNA_APP_KEY fehlen")
+    # Geprüft wird nur, was in suche.quellen auch benutzt wird.
+    schluessel = {
+        "adzuna": ("ADZUNA_APP_ID", "ADZUNA_APP_KEY"),
+        "careerjet": ("CAREERJET_API_KEY",),
+    }
+    for quelle in settings.search.sources:
+        if quelle not in QUELLEN:
+            ok = False
+            print(f"✗ Unbekannte Quelle '{quelle}' — bekannt: {', '.join(QUELLEN)}")
+            continue
+        fehlend = [name for name in schluessel[quelle] if not os.environ.get(name)]
+        if fehlend:
+            ok = False
+            print(f"✗ {quelle}: {' / '.join(fehlend)} fehlt")
+        else:
+            print(f"✓ {quelle}-Zugang gesetzt")
 
     print("\nAlles bereit." if ok else "\nEs fehlt noch etwas (siehe ✗ oben).")
     return 0 if ok else 1
@@ -93,7 +111,8 @@ def _print_jobs(pairs: list[tuple[Job, int, int]], settings: Settings) -> None:
         marker = f"[{focus.key}]" if focus else "[—]"
         print(f"{i:2d}. {job.title}")
         print(f"    {job.company} · {job.location or 'Ort unbekannt'} · "
-              f"{job.created or 'ohne Datum'} · Titel {hits} · Schwerpunkt {score} {marker}")
+              f"{job.created or 'ohne Datum'} · {job.source} · "
+              f"Titel {hits} · Schwerpunkt {score} {marker}")
         if job.url:
             print(f"    {job.url}")
 
@@ -109,8 +128,11 @@ def cmd_suchen(args: argparse.Namespace) -> int:
 
     begriffe = " | ".join(settings.search.queries)
     print(f"Suche: '{begriffe}' in {settings.search.country.upper()}"
-          f"{' / ' + settings.search.where if settings.search.where else ''}\n")
-    jobs = search_jobs(settings.search)
+          f"{' / ' + settings.search.where if settings.search.where else ''}"
+          f" über {', '.join(settings.search.sources)}\n")
+    jobs, probleme = search_all(settings.search)
+    for problem in probleme:
+        print(f"⚠ {problem}\n")
     pairs = rank_jobs(
         jobs, settings.focus_rules, settings.search.min_score, settings.search.queries
     )
@@ -130,7 +152,9 @@ def _collect_jobs(args: argparse.Namespace, settings: Settings) -> list[Job]:
         settings.search.queries = [args.query]
     if args.ort:
         settings.search.where = args.ort
-    jobs = search_jobs(settings.search)
+    jobs, probleme = search_all(settings.search)
+    for problem in probleme:
+        print(f"⚠ {problem}")
     pairs = rank_jobs(
         jobs, settings.focus_rules, settings.search.min_score, settings.search.queries
     )
@@ -201,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_check = sub.add_parser("pruefen", help="Konfiguration und Werkzeuge prüfen")
     p_check.set_defaults(func=cmd_pruefen)
 
-    p_search = sub.add_parser("suchen", help="Stellen bei Adzuna suchen und anzeigen")
+    p_search = sub.add_parser("suchen", help="Stellen bei den konfigurierten Börsen suchen und anzeigen")
     p_search.add_argument("--query", help="Suchbegriff (überschreibt profil.yaml)")
     p_search.add_argument("--ort", help="Ort (überschreibt profil.yaml)")
     p_search.add_argument("--treffer", type=int, help="Anzahl Treffer")
@@ -211,11 +235,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument("--anzahl", type=int, default=3, help="Wie viele Stellen (Standard: 3)")
     p_apply.add_argument("--query", help="Suchbegriff (überschreibt profil.yaml)")
     p_apply.add_argument("--ort", help="Ort (überschreibt profil.yaml)")
-    p_apply.add_argument("--stellen", help="YAML-Datei mit Stellen statt Adzuna-Suche")
+    p_apply.add_argument("--stellen", help="YAML-Datei mit Stellen statt Online-Suche")
     p_apply.add_argument(
         "--offline",
         action="store_true",
-        help="Ohne Claude-API: Platzhaltertext, nur zum Prüfen des Layouts",
+        help="Ohne Mistral-API: Platzhaltertext, nur zum Prüfen des Layouts",
     )
     p_apply.set_defaults(func=cmd_bewerben)
     return parser
@@ -226,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (ConfigError, AdzunaError, ConversionError) as exc:
+    except (ConfigError, AdzunaError, CareerjetError, SourceError, ConversionError) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

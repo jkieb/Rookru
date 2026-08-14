@@ -51,6 +51,8 @@ class FocusRule:
 @dataclass
 class SearchSettings:
     country: str = "at"
+    sources: list[str] = field(default_factory=lambda: ["adzuna"])
+    locale: str = ""  # leer → aus dem Ländercode abgeleitet (Careerjet)
     queries: list[str] = field(default_factory=lambda: ["Werkstudent Maschinenbau"])
     where: str = ""
     distance_km: int = 0
@@ -189,8 +191,13 @@ def load_settings(path: str | Path) -> Settings:
     suche = data.get("suche") or {}
     raw_query = suche.get("query", "Werkstudent Maschinenbau")
     queries = [str(raw_query)] if isinstance(raw_query, str) else [str(q) for q in raw_query]
+    raw_sources = suche.get("quellen") or ["adzuna"]
+    if isinstance(raw_sources, str):
+        raw_sources = [raw_sources]
     search = SearchSettings(
         country=str(suche.get("land", "at")).lower(),
+        sources=[str(q).strip().lower() for q in raw_sources if str(q).strip()],
+        locale=str(suche.get("locale", "")),
         queries=[q for q in queries if q.strip()],
         where=str(suche.get("ort", "")),
         distance_km=int(suche.get("umkreis_km", 0) or 0),

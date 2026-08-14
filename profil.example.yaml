@@ -46,7 +46,8 @@ schwerpunkte:
     hervorheben: [Prusa MK3S+, Bachelorarbeit, Printables, Autodesk Fusion 360]
 
 suche:
-  land: at                 # Adzuna-Ländercode: at, de, ch, …
+  land: at                 # Ländercode: at, de, ch, …
+  quellen: [adzuna, careerjet]   # Stellenbörsen; je Quelle ein Schlüssel in .env
   query:                   # ein Begriff oder mehrere; Treffer werden zusammengeführt
     - Werkstudent Maschinenbau
     - studentische Aushilfe Maschinenbau
