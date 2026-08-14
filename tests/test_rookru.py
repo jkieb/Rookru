@@ -6,12 +6,14 @@ gebraucht wird.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 from docx import Document
 from docx.oxml.ns import qn
 
+from rookru import screening
 from rookru.compose import ComposerError, StubComposer, detect_focus, message_text, parse_response
 from rookru.config import (
     ConfigError,
@@ -21,7 +23,7 @@ from rookru.config import (
     load_settings,
     slugify,
 )
-from rookru.models import CVAdaptation, Job, LetterContent, SectionEdit, TemplateData
+from rookru.models import CVAdaptation, Job, LetterContent, Screening, SectionEdit, TemplateData
 from rookru import pipeline
 from rookru.pipeline import (
     build_application,
@@ -29,6 +31,7 @@ from rookru.pipeline import (
     describe_address,
     describe_fill,
     describe_fit,
+    save_search_run,
 )
 from rookru.render import cv as cv_render
 from rookru.render import docx_tools as dt
@@ -868,3 +871,157 @@ def test_antworttext_aus_chunks() -> None:
     assert message_text("fertig") == "fertig"
     assert message_text([{"text": "a"}, {"text": "b"}]) == "ab"
     assert message_text(None) == ""
+
+
+# ------------------------------------------------------------- KI-Vorauswahl
+
+
+def _pairs(*jobs: Job) -> list[tuple[Job, int, int]]:
+    """Treffer im Format von rank_jobs: (Stelle, Schwerpunkt, Titel)."""
+    return [(job, 1, 2) for job in jobs]
+
+
+def test_vorauswahl_uebernimmt_urteil_und_begruendung() -> None:
+    batch = _pairs(
+        Job(id="1", title="Werkstudent CAD", company="A"),
+        Job(id="2", title="Senior Manager", company="B"),
+    )
+    data = {
+        "bewertungen": [
+            {"nr": 2, "passend": False, "punkte": 10, "grund": "x", "begruendung": "Vollzeit"},
+            {"nr": 1, "passend": True, "punkte": 85, "begruendung": "CAD  passt\nzum Profil"},
+        ]
+    }
+    urteile = screening.parse_response(data, batch, min_score=60)
+    assert [u.job.id for u in urteile] == ["1", "2"]  # Reihenfolge des Stapels
+    assert urteile[0].fits and urteile[0].score == 85
+    assert urteile[0].reason == "CAD passt zum Profil"  # Umbruch geglättet
+    assert urteile[0].title_hits == 2 and urteile[0].focus_score == 1
+    assert not urteile[1].fits
+
+
+def test_mindestpunkte_ueberstimmen_ein_zu_gutmuetiges_ja() -> None:
+    batch = _pairs(Job(id="1", title="Werkstudent", company="A"))
+    data = {"bewertungen": [{"nr": 1, "passend": True, "punkte": 45, "begruendung": "Randfall"}]}
+    assert not screening.parse_response(data, batch, min_score=60)[0].fits
+    assert screening.parse_response(data, batch, min_score=40)[0].fits
+
+
+def test_uebergangene_stelle_faellt_nicht_unter_den_tisch() -> None:
+    """Bewertet das Modell eine Anzeige nicht, muss das auffallen."""
+    batch = _pairs(
+        Job(id="1", title="Werkstudent", company="A"),
+        Job(id="2", title="Praktikum", company="B"),
+    )
+    urteile = screening.parse_response(
+        {"bewertungen": [{"nr": 1, "passend": True, "punkte": 90, "begruendung": "passt"}]},
+        batch,
+    )
+    assert len(urteile) == 2
+    assert urteile[1].rated is False and urteile[1].fits is False
+    assert "übergangen" in urteile[1].reason
+
+
+def test_erfundene_nummern_werden_ignoriert() -> None:
+    batch = _pairs(Job(id="1", title="Werkstudent", company="A"))
+    urteile = screening.parse_response(
+        {"bewertungen": [{"nr": 7, "passend": True, "punkte": 90, "begruendung": "?"}]}, batch
+    )
+    assert urteile[0].rated is False
+
+
+def test_punkte_bleiben_in_der_spanne() -> None:
+    batch = _pairs(Job(id="1", title="W", company="A"), Job(id="2", title="P", company="B"))
+    urteile = screening.parse_response(
+        {
+            "bewertungen": [
+                {"nr": 1, "passend": True, "punkte": 250, "begruendung": ""},
+                {"nr": 2, "passend": False, "punkte": "keine Zahl", "begruendung": ""},
+            ]
+        },
+        batch,
+    )
+    assert urteile[0].score == 100 and urteile[1].score == 0
+
+
+def test_stapel_statt_einer_anfrage_je_anzeige() -> None:
+    """Der Sinn der Vorauswahl: viele Anzeigen, wenige Anfragen."""
+    jobs = _pairs(*(Job(id=str(i), title=f"Stelle {i}", company="A") for i in range(70)))
+    stapel = screening.batches(jobs)
+    assert [len(s) for s in stapel] == [30, 30, 10]
+    assert screening.anfragen(len(jobs)) == 3
+    assert screening.anfragen(0) == 0
+
+
+def test_prompt_nummeriert_und_kuerzt_lange_ausschreibungen(
+    tmp_path: Path, cv_template: Path, letter_template: Path
+) -> None:
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    batch = _pairs(
+        Job(id="1", title="Werkstudent CAD", company="ACME", description="wort " * 900),
+        Job(id="2", title="Praktikum Python", company="Beta", location="Wien"),
+    )
+    prompt = screening.build_prompt(settings, TemplateData(facts="Faktenblatt"), batch)
+    assert "Faktenblatt" in prompt
+    assert "1. Werkstudent CAD — ACME" in prompt and "2. Praktikum Python — Beta" in prompt
+    assert "[…]" in prompt  # der lange Text wurde gekürzt
+    assert len(prompt) < 3000
+
+
+def test_stub_screener_sortiert_nichts_aus(
+    tmp_path: Path, cv_template: Path, letter_template: Path
+) -> None:
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    pairs = _pairs(Job(id="1", title="Werkstudent", company="A"))
+    urteile = screening.StubScreener().screen(settings, pairs, TemplateData())
+    assert urteile[0].fits and urteile[0].rated is False
+
+
+def test_suchlauf_legt_beide_ergebnisse_ab(
+    tmp_path: Path, cv_template: Path, letter_template: Path
+) -> None:
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    job_a = Job(id="1", title="Werkstudent CAD", company="ACME", url="https://example.com/a")
+    job_b = Job(id="2", title="Senior Manager", company="Beta")
+    pairs = _pairs(job_a, job_b)
+    urteile = [
+        Screening(job=job_a, fits=True, score=85, reason="passt", title_hits=2, focus_score=1),
+        Screening(job=job_b, fits=False, score=10, reason="Vollzeit"),
+    ]
+    ordner = save_search_run(settings, pairs, urteile, ["Careerjet down"], model="testmodell",
+                             root=tmp_path / "suchlaeufe")
+
+    suche = json.loads((ordner / "suche.json").read_text(encoding="utf-8"))
+    assert suche["anzahl"] == 2 and suche["probleme"] == ["Careerjet down"]
+    assert suche["stellen"][0]["stelle"]["title"] == "Werkstudent CAD"
+    assert suche["stellen"][0]["platz"] == 1
+
+    vorauswahl = json.loads((ordner / "vorauswahl.json").read_text(encoding="utf-8"))
+    assert vorauswahl["modell"] == "testmodell" and vorauswahl["passend_anzahl"] == 1
+    assert vorauswahl["passend"][0]["stelle"]["url"] == "https://example.com/a"
+    assert vorauswahl["aussortiert"][0]["firma"] == "Beta"
+
+
+def test_suchlauf_ohne_vorauswahl_schreibt_nur_die_suche(
+    tmp_path: Path, cv_template: Path, letter_template: Path
+) -> None:
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    ordner = save_search_run(
+        settings, _pairs(Job(id="1", title="W", company="A")), None, [],
+        root=tmp_path / "suchlaeufe",
+    )
+    assert (ordner / "suche.json").is_file()
+    assert not (ordner / "vorauswahl.json").exists()
+
+
+def test_zwei_laeufe_in_derselben_sekunde_vermischen_sich_nicht(
+    tmp_path: Path, cv_template: Path, letter_template: Path
+) -> None:
+    settings = _settings_for_parse(tmp_path, cv_template, letter_template)
+    pairs = _pairs(Job(id="1", title="W", company="A"))
+    wurzel = tmp_path / "suchlaeufe"
+    erster = save_search_run(settings, pairs, None, [], root=wurzel)
+    zweiter = save_search_run(settings, pairs, [], [], root=wurzel)
+    assert erster != zweiter
+    assert not (erster / "vorauswahl.json").exists()  # der zweite Lauf hat nichts überschrieben
+    assert (zweiter / "vorauswahl.json").is_file()
