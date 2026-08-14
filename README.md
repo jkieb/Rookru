@@ -102,6 +102,34 @@ Dann prüfen, ob alles zusammenpasst:
 .venv/bin/python -m rookru pruefen
 ```
 
+### Suchbegriffe: nach Können suchen, nicht nur nach dem Fach
+
+Werkstudentenstellen nennen das Studienfach oft überhaupt nicht. Eine Anzeige
+„Werkstudent\*in Sales & CRM Support" verlangt nur „Bachelorstudium" plus VBA,
+SQL und Access — über `Werkstudent Maschinenbau` ist sie unauffindbar, über
+`Werkstudent VBA` steht sie an erster Stelle. Alle drei Börsen durchsuchen den
+**Volltext** der Anzeige, auch wenn sie nur einen Anriss zurückliefern; die
+Suche nach den eigenen Fähigkeiten erreicht deshalb Stellen, die die Suche nach
+dem Fach nie findet.
+
+Dafür gibt es die Kombinationssuche: jede Rolle wird mit jedem Thema verbunden.
+
+```yaml
+suche:
+  rollen: [Werkstudent, Praktikum, studentische Aushilfe]
+  themen: [Maschinenbau, Konstruktion, CAD, 3D-Druck, Python, VBA, SQL, Datenauswertung]
+  query:                 # zusätzliche Begriffe, unabhängig von den Kombinationen
+    - Werkstudent Maschinenbauingenieur
+```
+
+Daraus werden `Werkstudent Maschinenbau`, `Werkstudent Konstruktion`, …,
+`studentische Aushilfe Datenauswertung` — 3 × 8 = 24 Begriffe. Unter `themen`
+gehört das, was du kannst, nicht das, was du studierst.
+
+**Jede Kombination ist eine Anfrage je Quelle.** 24 Begriffe × 3 Börsen sind 72
+Anfragen und rund anderthalb Minuten. Wird es zu langsam, kürze die
+Themenliste — sie ist der Hebel.
+
 ### Stellenquellen
 
 Welche Börsen abgefragt werden, steht unter `suche.quellen`:
@@ -280,13 +308,12 @@ Problem als Warnung; erst wenn keine einzige antwortet, bricht sie ab.
   (`examples/stellen.beispiel.yaml` als Muster) und `--stellen` benutzen — dort
   kannst du auch Abteilung und Anschrift für den Briefkopf angeben, die keine
   API liefert.
-- **Für Werkstudentenstellen in Wien ist die Ausbeute dünn.** Gemessen im
-  August 2026: Adzuna kennt für „Werkstudent Maschinenbau" in Wien eine Handvoll
-  Treffer, Careerjet steuert vor allem Stellen außerhalb Wiens bei (Graz, Linz,
-  Salzburg). Mehr Suchbegriffe bringen vor allem fachfremde Treffer. Die großen
-  österreichischen Börsen (karriere.at, AMS eJob-Room) haben keine offene
-  Such-API und lassen sich nicht anbinden — dort lohnt die Suche von Hand,
-  gefolgt von `--stellen`.
+- **Nach dem Studienfach allein findest du wenig.** Gemessen im August 2026:
+  `Werkstudent Maschinenbau` in Wien ergab über Adzuna und Careerjet zusammen
+  zwei Treffer. Mit Jooble und der Kombinationssuche über Fähigkeiten wurden
+  daraus 141 — siehe „Suchbegriffe" oben. karriere.at und der AMS eJob-Room
+  haben keine offene Such-API; ihre Inhalte kommen teilweise über `jooble`
+  herein, ansonsten lohnt die Suche von Hand, gefolgt von `--stellen`.
 - **LibreOffice bricht Seiten leicht anders um als Word.** Passt ein Dokument
   nicht auf eine Seite, verkleinert Rookru stufenweise erst die Abstände, dann
   die Schrift, und schreibt eine Warnung dazu. Ist auf deinem Rechner die echte

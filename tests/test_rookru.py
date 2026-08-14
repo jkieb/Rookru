@@ -533,6 +533,53 @@ def test_stellen_datei_braucht_pflichtfelder(tmp_path: Path) -> None:
         load_jobs_file(path)
 
 
+def _profil_mit_suche(tmp_path: Path, suche_yaml: str) -> Path:
+    pfad = tmp_path / "profil.yaml"
+    pfad.write_text(
+        "bewerber:\n  name: Max Muster\n"
+        "vorlagen:\n  motivationsschreiben: b.docx\n  lebenslauf: l.docx\n"
+        f"suche:\n{suche_yaml}",
+        encoding="utf-8",
+    )
+    return pfad
+
+
+def test_rollen_und_themen_werden_kombiniert(tmp_path: Path) -> None:
+    """Werkstudentenstellen nennen das Studienfach oft nicht — daher nach Können suchen."""
+    pfad = _profil_mit_suche(
+        tmp_path, "  rollen: [Werkstudent, Praktikum]\n  themen: [VBA, CAD]\n  query: []\n"
+    )
+    assert load_settings(pfad).search.queries == [
+        "Werkstudent VBA",
+        "Werkstudent CAD",
+        "Praktikum VBA",
+        "Praktikum CAD",
+    ]
+
+
+def test_eigene_begriffe_stehen_vor_den_kombinationen(tmp_path: Path) -> None:
+    pfad = _profil_mit_suche(
+        tmp_path,
+        "  query: [Werkstudent Maschinenbauingenieur]\n  rollen: [Werkstudent]\n  themen: [SQL]\n",
+    )
+    assert load_settings(pfad).search.queries == [
+        "Werkstudent Maschinenbauingenieur",
+        "Werkstudent SQL",
+    ]
+
+
+def test_doppelte_suchbegriffe_werden_zusammengefasst(tmp_path: Path) -> None:
+    pfad = _profil_mit_suche(
+        tmp_path, "  query: [Werkstudent CAD]\n  rollen: [Werkstudent]\n  themen: [CAD, CAD]\n"
+    )
+    assert load_settings(pfad).search.queries == ["Werkstudent CAD"]
+
+
+def test_ohne_rollen_bleibt_es_bei_den_eigenen_begriffen(tmp_path: Path) -> None:
+    pfad = _profil_mit_suche(tmp_path, "  query: [Werkstudent Maschinenbau]\n  themen: [CAD]\n")
+    assert load_settings(pfad).search.queries == ["Werkstudent Maschinenbau"]
+
+
 def test_fehlende_konfiguration_meldet_pfad(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="profil.example.yaml"):
         load_settings(tmp_path / "fehlt.yaml")

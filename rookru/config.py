@@ -144,6 +144,30 @@ DEFAULT_FOCUS = [
 ]
 
 
+def _as_list(value: Any) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value]
+
+
+def _combined_queries(suche: dict) -> list[str]:
+    """Erzeugt 'rolle thema'-Suchbegriffe aus zwei Listen.
+
+    Werkstudentenstellen nennen das Studienfach oft gar nicht — die Siemens-
+    Anzeige 'Werkstudent Sales & CRM Support' verlangt nur ein Bachelorstudium
+    plus VBA und SQL. Über 'Werkstudent Maschinenbau' ist sie unauffindbar,
+    über 'Werkstudent VBA' steht sie an erster Stelle. Weil alle Börsen den
+    Volltext der Anzeige durchsuchen (auch wenn sie nur einen Anriss
+    zurückgeben), findet die Suche nach eigenen Fähigkeiten Stellen, die die
+    Suche nach dem Fach nie erreicht.
+    """
+    rollen = _as_list(suche.get("rollen"))
+    themen = _as_list(suche.get("themen"))
+    return [f"{rolle} {thema}".strip() for rolle in rollen for thema in themen]
+
+
 def load_settings(path: str | Path) -> Settings:
     path = Path(path).expanduser().resolve()
     if not path.is_file():
@@ -192,6 +216,8 @@ def load_settings(path: str | Path) -> Settings:
     suche = data.get("suche") or {}
     raw_query = suche.get("query", "Werkstudent Maschinenbau")
     queries = [str(raw_query)] if isinstance(raw_query, str) else [str(q) for q in raw_query]
+    queries += _combined_queries(suche)
+    queries = list(dict.fromkeys(q.strip() for q in queries if q.strip()))
     raw_sources = suche.get("quellen") or ["adzuna"]
     if isinstance(raw_sources, str):
         raw_sources = [raw_sources]

@@ -53,10 +53,15 @@ suche:
   # Jooble-Schlüssel gelten nur für die Länderseite, auf der sie
   # beantragt wurden — hier die passende eintragen (Standard: jooble.org)
   jooble_host: de.jooble.org
-  query:                   # ein Begriff oder mehrere; Treffer werden zusammengeführt
-    - Werkstudent Maschinenbau
-    - studentische Aushilfe Maschinenbau
-    - Praktikum Maschinenbau
+  # Kombinationssuche: jede Rolle wird mit jedem Thema kombiniert
+  # ("Werkstudent VBA", "Praktikum CAD", …). Die Börsen durchsuchen den
+  # Volltext der Anzeige, deshalb findet die Suche nach eigenen Fähigkeiten
+  # auch Stellen, die das Studienfach gar nicht nennen.
+  # Achtung: jede Kombination ist eine Anfrage je Quelle.
+  rollen: [Werkstudent, Praktikum, studentische Aushilfe]
+  themen: [Maschinenbau, Konstruktion, CAD, 3D-Druck, Python, VBA, SQL, Datenauswertung]
+  query:                   # zusätzliche Begriffe, unabhängig von den Kombinationen
+    - Werkstudent Maschinenbauingenieur
   ort: Wien
   umkreis_km: 25
   treffer: 20
