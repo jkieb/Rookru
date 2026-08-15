@@ -325,9 +325,30 @@ def cmd_bewerben(args: argparse.Namespace) -> int:
     template_data = read_template(settings.templates.cv)
     jobs = _collect_jobs(args, settings, template_data)
     if not jobs:
-        print("Keine passenden Stellen gefunden."
-              + ("" if args.ohne_vorauswahl else " Mit --ohne-vorauswahl bewirbst du dich "
-                 "auf die bestplatzierten Treffer der Suche, ohne die KI zu fragen."))
+        hinweis = ""
+        if not args.stellen:
+            # Zeige den neuesten Suchlauf als Fallback-Option an
+            runs_dir = settings.runs_dir
+            if runs_dir.is_dir():
+                neuester = next(
+                    (p for p in sorted(runs_dir.iterdir(), reverse=True) if p.is_dir()), None
+                )
+                if neuester and (neuester / "vorauswahl.json").is_file():
+                    hinweis = (
+                        f"\n  Tipp: Nutze einen gespeicherten Suchlauf als Fallback:\n"
+                        f"  rookru bewerben --anzahl N --stellen {neuester / 'vorauswahl.json'}"
+                    )
+                elif neuester and (neuester / "suche.json").is_file():
+                    hinweis = (
+                        f"\n  Tipp: Nutze einen gespeicherten Suchlauf als Fallback:\n"
+                        f"  rookru bewerben --anzahl N --stellen {neuester / 'suche.json'}"
+                    )
+        print(
+            "Keine passenden Stellen gefunden."
+            + ("" if args.ohne_vorauswahl else " Mit --ohne-vorauswahl bewirbst du dich "
+               "auf die bestplatzierten Treffer der Suche, ohne die KI zu fragen.")
+            + hinweis
+        )
         return 1
 
     try:

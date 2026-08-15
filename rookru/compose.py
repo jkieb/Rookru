@@ -336,6 +336,9 @@ class MistralComposer:
             )
         except self._error as exc:
             raise ComposerError(f"Mistral-API: {exc}") from exc
+        except Exception as exc:
+            # Netzwerkfehler (z. B. httpx.ProxyError bei gesperrtem Proxy) sauber abfangen
+            raise ComposerError(f"Mistral-API Netzwerkfehler: {type(exc).__name__}: {exc}") from exc
 
         choices = getattr(response, "choices", None)
         if not choices:
