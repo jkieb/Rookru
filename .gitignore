@@ -1,9 +1,14 @@
 # Persönliche Daten — nichts hiervon gehört ins Repository
 privat/
+2026/
 out/
 suchlaeufe/
 profil.yaml
 .env
+logs/
+scripts/
+rookru_learnings.md
+*_Rookru_Bericht.html
 
 # Python
 .venv/
